@@ -76,20 +76,15 @@ class AppTypography {
         letterSpacing: 0.02 * 11,
         color: AppColors.onSurface,
       );
-  // Aliases for compatibility
-  static TextStyle get displayLarge => displayLg;
-  static TextStyle get headlineLarge => headlineLg;
+
+  // Material-style aliases
+  static TextStyle get titleLarge => headlineLg;
   static TextStyle get headlineMedium => headlineMd;
   static TextStyle get headlineSmall => headlineSm;
-  static TextStyle get titleLarge => headlineLg;
-  static TextStyle get titleMedium => headlineMd;
   static TextStyle get bodyLarge => bodyLg;
   static TextStyle get bodyMedium => bodyMd;
   static TextStyle get bodySmall => bodySm;
   static TextStyle get labelLarge => labelLg;
   static TextStyle get labelMedium => labelMd;
   static TextStyle get labelSmall => labelSm;
-  static TextStyle get heading2 => headlineLg;
-  static TextStyle get heading3 => headlineMd;
 }
-

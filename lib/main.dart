@@ -1,58 +1,43 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'providers/auth_provider.dart';
-import 'providers/task_provider.dart';
-import 'providers/theme_provider.dart';
-import 'core/router/app_router.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'core/di/providers.dart';
 import 'core/theme/app_theme.dart';
-import 'data/database_helper.dart';
+import 'core/routing/app_router.dart';
+import 'core/utils/db_provider.dart';
+import 'features/settings/presentation/providers/settings_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  final dbHelper = DatabaseHelper.instance;
-  await dbHelper.database;
+  final db = await openAppDatabase();
+  final prefs = await SharedPreferences.getInstance();
 
   runApp(
-    MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => AuthProvider()),
-        ChangeNotifierProvider(create: (_) => TaskProvider()),
-        ChangeNotifierProvider(create: (_) => ThemeProvider()),
+    ProviderScope(
+      overrides: [
+        dbProviderProvider.overrideWithValue(db),
+        sharedPreferencesProvider.overrideWithValue(prefs),
       ],
       child: const TaskFlowApp(),
     ),
   );
 }
 
-class TaskFlowApp extends StatefulWidget {
+class TaskFlowApp extends ConsumerWidget {
   const TaskFlowApp({super.key});
 
   @override
-  State<TaskFlowApp> createState() => _TaskFlowAppState();
-}
-
-class _TaskFlowAppState extends State<TaskFlowApp> {
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<AuthProvider>().checkAuthStatus();
-      context.read<TaskProvider>().loadTasks();
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final themeProvider = context.watch<ThemeProvider>();
-    final router = AppRouter.router(context);
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(settingsControllerProvider).value?.themeMode ?? ThemeMode.system;
+    final router = ref.watch(appRouterProvider);
 
     return MaterialApp.router(
       title: 'TaskFlow',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      themeMode: themeProvider.themeMode,
+      themeMode: themeMode,
       routerConfig: router,
     );
   }
