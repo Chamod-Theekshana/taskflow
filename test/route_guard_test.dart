@@ -2,43 +2,59 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:taskflow/core/routing/route_guard.dart';
 
 void main() {
-  group('resolveAuthRedirect', () {
-    String? redirect({
-      bool restoring = false,
-      bool loggedIn = false,
-      required String at,
-    }) => resolveAuthRedirect(
-      isRestoringSession: restoring,
-      isLoggedIn: loggedIn,
-      location: at,
+  String? redirect({
+    bool splashDone = true,
+    bool loggedIn = false,
+    required String at,
+  }) => resolveRedirect(
+    splashDone: splashDone,
+    isLoggedIn: loggedIn,
+    location: at,
+  );
+
+  test('everything waits on the splash screen until it has finished', () {
+    expect(redirect(splashDone: false, at: AppRoutes.splash), isNull);
+    expect(
+      redirect(splashDone: false, loggedIn: true, at: AppRoutes.home),
+      AppRoutes.splash,
     );
+  });
 
-    test('stays on splash while the session is being restored', () {
-      expect(redirect(restoring: true, at: AppRoutes.splash), isNull);
-      expect(redirect(restoring: true, at: AppRoutes.home), AppRoutes.splash);
-    });
+  test('signed-out users leave the splash for login', () {
+    expect(redirect(at: AppRoutes.splash), AppRoutes.login);
+  });
 
-    test('signed-out user leaves the splash screen for login (the bug)', () {
-      expect(redirect(at: AppRoutes.splash), AppRoutes.login);
-    });
+  test('signed-out users can only use login and sign-up', () {
+    expect(redirect(at: AppRoutes.login), isNull);
+    expect(redirect(at: AppRoutes.signup), isNull);
+    expect(redirect(at: AppRoutes.home), AppRoutes.login);
+    expect(redirect(at: '/task/3'), AppRoutes.login);
+  });
 
-    test('signed-out user may use login and sign-up only', () {
-      expect(redirect(at: AppRoutes.login), isNull);
-      expect(redirect(at: AppRoutes.signup), isNull);
-      expect(redirect(at: AppRoutes.home), AppRoutes.login);
-      expect(redirect(at: '/task/3'), AppRoutes.login);
-    });
+  test('signed-in users skip splash, login and sign-up', () {
+    expect(redirect(loggedIn: true, at: AppRoutes.splash), AppRoutes.home);
+    expect(redirect(loggedIn: true, at: AppRoutes.login), AppRoutes.home);
+    expect(redirect(loggedIn: true, at: AppRoutes.signup), AppRoutes.home);
+  });
 
-    test('signed-in user is sent home from splash / auth pages', () {
-      expect(redirect(loggedIn: true, at: AppRoutes.splash), AppRoutes.home);
-      expect(redirect(loggedIn: true, at: AppRoutes.login), AppRoutes.home);
-      expect(redirect(loggedIn: true, at: AppRoutes.signup), AppRoutes.home);
-    });
+  test('signed-in users can open every tab and task screen', () {
+    for (final path in [
+      AppRoutes.home,
+      AppRoutes.search,
+      AppRoutes.calendar,
+      AppRoutes.stats,
+      AppRoutes.profile,
+      AppRoutes.task(7),
+      AppRoutes.editTask(7),
+    ]) {
+      expect(redirect(loggedIn: true, at: path), isNull, reason: path);
+    }
+  });
 
-    test('signed-in user can open app screens', () {
-      expect(redirect(loggedIn: true, at: AppRoutes.home), isNull);
-      expect(redirect(loggedIn: true, at: AppRoutes.calendar), isNull);
-      expect(redirect(loggedIn: true, at: '/task/7'), isNull);
-    });
+  test('addTaskOn formats the date as a query parameter', () {
+    expect(
+      AppRoutes.addTaskOn(DateTime(2026, 3, 5)),
+      '/add-task?date=2026-03-05',
+    );
   });
 }

@@ -1,180 +1,378 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/notifications/notification_service.dart';
 import '../../core/routing/route_guard.dart';
+import '../../core/theme/app_theme.dart';
+import '../../features/tasks/presentation/providers/calendar_day_provider.dart';
+import 'ui.dart';
 
-/// Bottom padding for scrollable screens inside the shell.
-///
-/// The shell's Scaffold uses `extendBody: true`, so inside the shell
-/// `MediaQuery.padding.bottom` already includes the height of the floating
-/// dock; adding a little breathing room keeps the last list item fully
-/// visible above it.
+/// Room the tab screens leave at the bottom so their last item clears the
+/// floating dock.
 double dockClearance(BuildContext context) =>
-    MediaQuery.paddingOf(context).bottom + 16;
+    MediaQuery.paddingOf(context).bottom + 24;
 
-class AppShell extends StatelessWidget {
-  /// Current path (without query string), used to highlight the active tab.
+class _Tab {
+  final String path;
+  final String label;
+  final IconData icon;
+  final IconData activeIcon;
+
+  const _Tab(this.path, this.label, this.icon, this.activeIcon);
+}
+
+const _tabs = [
+  _Tab(AppRoutes.search, 'Search', Icons.search_rounded, Icons.search_rounded),
+  _Tab(
+    AppRoutes.calendar,
+    'Calendar',
+    Icons.calendar_today_outlined,
+    Icons.calendar_today_rounded,
+  ),
+  _Tab(
+    AppRoutes.stats,
+    'Stats',
+    Icons.bar_chart_rounded,
+    Icons.bar_chart_rounded,
+  ),
+  _Tab(
+    AppRoutes.home,
+    'Tasks',
+    Icons.checklist_rounded,
+    Icons.checklist_rounded,
+  ),
+  _Tab(
+    AppRoutes.profile,
+    'Profile',
+    Icons.person_outline_rounded,
+    Icons.person_rounded,
+  ),
+];
+
+/// Frame around the five main tabs: the notched dock at the bottom and the
+/// add button on the task list and calendar.
+class AppShell extends ConsumerStatefulWidget {
   final String location;
   final Widget child;
 
   const AppShell({super.key, required this.location, required this.child});
 
   @override
-  Widget build(BuildContext context) {
-    final media = MediaQuery.of(context);
-    // Hide the dock while the keyboard is open (e.g. typing in search), it
-    // would otherwise float above the keyboard and cover the content.
-    final keyboardOpen = media.viewInsets.bottom > 0;
-
-    // The dock is the Scaffold's bottomNavigationBar (with extendBody so the
-    // content still scrolls behind it). That way SnackBars are laid out
-    // above the dock instead of covering it.
-    return Scaffold(
-      extendBody: true,
-      body: child,
-      bottomNavigationBar: keyboardOpen
-          ? null
-          : Padding(
-              padding: EdgeInsets.fromLTRB(16, 0, 16, 12 + media.padding.bottom),
-              child: _BottomNavDock(currentLocation: location),
-            ),
-    );
-  }
+  ConsumerState<AppShell> createState() => _AppShellState();
 }
 
-class _BottomNavDock extends StatelessWidget {
-  final String currentLocation;
+class _AppShellState extends ConsumerState<AppShell> {
+  StreamSubscription<int>? _reminderTaps;
 
-  const _BottomNavDock({required this.currentLocation});
+  @override
+  void initState() {
+    super.initState();
+    final notifications = NotificationService.instance;
+    _reminderTaps = notifications.taskTaps.listen(_openTask);
+    notifications.takeLaunchTaskId().then((id) {
+      if (id != null) _openTask(id);
+    });
+  }
+
+  @override
+  void dispose() {
+    _reminderTaps?.cancel();
+    super.dispose();
+  }
+
+  void _openTask(int id) {
+    if (mounted) context.push(AppRoutes.task(id));
+  }
+
+  void _addTask() {
+    if (widget.location.startsWith(AppRoutes.calendar)) {
+      context.push(AppRoutes.addTaskOn(ref.read(calendarDayProvider)));
+    } else {
+      context.push(AppRoutes.addTask);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final index = _tabs.indexWhere((t) => widget.location.startsWith(t.path));
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
+    final showAdd =
+        widget.location.startsWith(AppRoutes.home) ||
+        widget.location.startsWith(AppRoutes.calendar);
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
 
-    return Container(
-      height: 72,
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(36),
-        border: Border.all(
-          color: colorScheme.outlineVariant.withValues(alpha: 0.5),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          _NavItem(
-            icon: Icons.check_circle_outline,
-            activeIcon: Icons.check_circle,
-            label: 'Home',
-            isActive: currentLocation.startsWith(AppRoutes.home),
-            onTap: () => context.go(AppRoutes.home),
-          ),
-          _NavItem(
-            icon: Icons.calendar_today_outlined,
-            activeIcon: Icons.calendar_today,
-            label: 'Calendar',
-            isActive: currentLocation.startsWith(AppRoutes.calendar),
-            onTap: () => context.go(AppRoutes.calendar),
-          ),
-          Transform.translate(
-            offset: const Offset(0, -16),
-            child: Semantics(
-              button: true,
-              label: 'Add task',
-              child: GestureDetector(
-                onTap: () => context.push(AppRoutes.addTask),
-                child: Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    color: colorScheme.primary,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: colorScheme.surface, width: 4),
-                    boxShadow: [
-                      BoxShadow(
-                        color: colorScheme.primary.withValues(alpha: 0.4),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Icon(
-                    Icons.add,
-                    color: colorScheme.onPrimary,
-                    size: 28,
+    return Scaffold(
+      extendBody: true,
+      body: widget.child,
+      floatingActionButton: showAdd && !keyboardOpen
+          ? _AddButton(onTap: _addTask)
+          : null,
+      bottomNavigationBar: keyboardOpen
+          ? null
+          : Padding(
+              padding: EdgeInsets.fromLTRB(16, 8, 16, 20 + bottomInset),
+              child: Center(
+                heightFactor: 1,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 360),
+                  child: _Dock(
+                    index: index < 0 ? 3 : index,
+                    onSelect: (i) => context.go(_tabs[i].path),
                   ),
                 ),
               ),
             ),
-          ),
-          _NavItem(
-            icon: Icons.person_outline,
-            activeIcon: Icons.person,
-            label: 'Profile',
-            isActive: currentLocation.startsWith(AppRoutes.profile),
-            onTap: () => context.go(AppRoutes.profile),
-          ),
-        ],
+    );
+  }
+}
+
+class _AddButton extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _AddButton({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Pressable(
+      semanticLabel: 'Add task',
+      onTap: onTap,
+      scale: 0.92,
+      child: Container(
+        width: 56,
+        height: 56,
+        decoration: const BoxDecoration(
+          color: AppColors.indigo,
+          shape: BoxShape.circle,
+          boxShadow: AppShadows.fab,
+        ),
+        child: const Icon(Icons.add_rounded, color: Colors.white, size: 28),
       ),
     );
   }
 }
 
-class _NavItem extends StatelessWidget {
-  final IconData icon;
-  final IconData activeIcon;
-  final String label;
-  final bool isActive;
+/// The floating indigo dock. The active tab sits in a white disc that rides
+/// in a notch cut into the top edge; both slide when the tab changes.
+class _Dock extends StatelessWidget {
+  final int index;
+  final ValueChanged<int> onSelect;
+
+  const _Dock({required this.index, required this.onSelect});
+
+  static const height = 64.0;
+  static const _inset = 8.0;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: height,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final width = constraints.maxWidth;
+          final slot = (width - 2 * _inset) / _tabs.length;
+          double centerOf(int i) => _inset + slot * (i + 0.5);
+
+          return TweenAnimationBuilder<double>(
+            tween: Tween(begin: centerOf(index), end: centerOf(index)),
+            duration: const Duration(milliseconds: 380),
+            curve: Curves.easeOutCubic,
+            builder: (context, notchX, _) {
+              return Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Positioned.fill(
+                    child: CustomPaint(painter: _DockPainter(notchX)),
+                  ),
+                  Positioned.fill(
+                    left: _inset,
+                    right: _inset,
+                    child: Row(
+                      children: [
+                        for (var i = 0; i < _tabs.length; i++)
+                          SizedBox(
+                            width: slot,
+                            child: _DockIcon(
+                              tab: _tabs[i],
+                              selected: i == index,
+                              onTap: () => onSelect(i),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  Positioned(
+                    left: notchX - 24,
+                    top: 4,
+                    child: _ActiveDisc(
+                      tab: _tabs[index],
+                      onTap: () => onSelect(index),
+                    ),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _DockIcon extends StatelessWidget {
+  final _Tab tab;
+  final bool selected;
   final VoidCallback onTap;
 
-  const _NavItem({
-    required this.icon,
-    required this.activeIcon,
-    required this.label,
-    required this.isActive,
+  const _DockIcon({
+    required this.tab,
+    required this.selected,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final color = isActive ? colorScheme.primary : colorScheme.outline;
-
     return Semantics(
       button: true,
-      selected: isActive,
-      label: label,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
+      selected: selected,
+      label: tab.label,
+      excludeSemantics: true,
+      child: Pressable(
         onTap: onTap,
-        child: Container(
-          width: 60,
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(isActive ? activeIcon : icon, color: color, size: 24),
-              const SizedBox(height: 4),
-              Container(
-                width: 4,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: isActive ? color : Colors.transparent,
-                  shape: BoxShape.circle,
-                ),
-              ),
-            ],
+        scale: 0.9,
+        child: SizedBox(
+          height: _Dock.height,
+          child: AnimatedOpacity(
+            duration: const Duration(milliseconds: 200),
+            opacity: selected ? 0 : 1,
+            child: Icon(
+              tab.icon,
+              size: 24,
+              color: Colors.white.withValues(alpha: 0.75),
+            ),
           ),
         ),
       ),
     );
   }
+}
+
+class _ActiveDisc extends StatelessWidget {
+  final _Tab tab;
+  final VoidCallback onTap;
+
+  const _ActiveDisc({required this.tab, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return ExcludeSemantics(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.white.withValues(alpha: 0.22),
+                spreadRadius: 4,
+              ),
+              const BoxShadow(
+                color: Color(0x2E000000),
+                blurRadius: 20,
+                offset: Offset(0, 8),
+              ),
+            ],
+          ),
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 200),
+            child: Icon(
+              tab.activeIcon,
+              key: ValueKey(tab.path),
+              size: 24,
+              color: AppColors.primary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DockPainter extends CustomPainter {
+  final double notchX;
+
+  _DockPainter(this.notchX);
+
+  static const _radius = 32.0;
+  static const _notchHalf = 36.0;
+  static const _notchDepth = 24.0;
+
+  Path _outline(Size size) {
+    final w = size.width;
+    final h = size.height;
+    final c = notchX;
+    final left = c - _notchHalf;
+    final right = c + _notchHalf;
+    // Near either end the notch eats into the corner, so that top corner
+    // gets smaller (as in the profile design).
+    final topLeft = left.clamp(0.0, _radius);
+    final topRight = (w - right).clamp(0.0, _radius);
+    const d = _notchDepth;
+
+    return Path()
+      ..moveTo(0, h / 2)
+      ..lineTo(0, topLeft)
+      ..arcToPoint(Offset(topLeft, 0), radius: Radius.circular(topLeft))
+      ..lineTo(left, 0)
+      ..cubicTo(c - 29.5, 0, c - 24.5, d * 0.1, c - 21.5, d * 0.29)
+      ..cubicTo(c - 16.5, d * 0.6, c - 9.5, d, c, d)
+      ..cubicTo(c + 9.5, d, c + 16.5, d * 0.6, c + 21.5, d * 0.29)
+      ..cubicTo(c + 24.5, d * 0.1, c + 29.5, 0, right, 0)
+      ..lineTo(w - topRight, 0)
+      ..arcToPoint(Offset(w, topRight), radius: Radius.circular(topRight))
+      ..lineTo(w, h / 2)
+      ..arcToPoint(
+        Offset(w - _radius, h),
+        radius: const Radius.circular(_radius),
+      )
+      ..lineTo(_radius, h)
+      ..arcToPoint(Offset(0, h / 2), radius: const Radius.circular(_radius))
+      ..close();
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = _outline(size);
+
+    canvas.drawPath(
+      path.shift(const Offset(0, 12)),
+      Paint()
+        ..color = const Color(0x524648D4)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12),
+    );
+    canvas.drawPath(
+      path,
+      Paint()..shader = AppColors.dockGradient.createShader(Offset.zero & size),
+    );
+
+    // Faint highlight along the top edge.
+    canvas.save();
+    canvas.clipRect(Rect.fromLTWH(0, 0, size.width, _notchDepth + 2));
+    canvas.drawPath(
+      path,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..color = Colors.white.withValues(alpha: 0.2),
+    );
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_DockPainter old) => old.notchX != notchX;
 }

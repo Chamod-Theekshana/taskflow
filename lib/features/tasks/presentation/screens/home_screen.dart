@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
-import '../../../../core/routing/route_guard.dart';
+import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/date_time_utils.dart';
+import '../../../../shared/widgets/app_header.dart';
 import '../../../../shared/widgets/app_shell.dart';
-import '../../../../shared/widgets/momentum_ring.dart';
+import '../../../../shared/widgets/progress_ring.dart';
+import '../../../../shared/widgets/ui.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../domain/entities/task.dart';
 import '../providers/task_provider.dart';
 import '../widgets/task_card.dart';
+import '../widgets/task_filter_sheet.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -19,373 +22,370 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-  late final TextEditingController _searchController;
-
-  @override
-  void initState() {
-    super.initState();
-    _searchController = TextEditingController(
-      text: ref.read(taskListProvider).searchQuery,
-    );
-  }
+  late final TextEditingController _search = TextEditingController(
+    text: ref.read(taskListProvider).searchQuery,
+  );
 
   @override
   void dispose() {
-    _searchController.dispose();
+    _search.dispose();
     super.dispose();
-  }
-
-  String _getGreeting() {
-    final hour = DateTime.now().hour;
-    if (hour < 12) return 'Good morning';
-    if (hour < 17) return 'Good afternoon';
-    return 'Good evening';
-  }
-
-  void _clearSearch() {
-    _searchController.clear();
-    ref.read(taskListProvider.notifier).setSearchQuery('');
-    setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final textTheme = theme.textTheme;
+    final state = ref.watch(taskListProvider);
+    final notifier = ref.read(taskListProvider.notifier);
+    final name = ref.watch(authProvider.select((a) => a.value?.firstName));
+    final now = DateTime.now();
+    final visible = state.visibleTasks(now);
 
-    final taskListState = ref.watch(taskListProvider);
-    final allTasks = taskListState.tasks;
-    final pendingTasks = allTasks.where((t) => !t.isCompleted).toList();
-    final highPriorityCount = pendingTasks
-        .where((t) => t.priority == TaskPriority.high)
-        .length;
-    final overdueCount = pendingTasks.where((t) => t.isOverdue()).length;
-
-    final displayTasks = taskListState.filteredTasks;
-    final todayStr = DateFormat('EEEE, MMM d').format(DateTime.now());
-
-    final user = ref.watch(authProvider).value;
-    final firstName = user?.firstName ?? '';
-    final greeting = firstName.isEmpty
-        ? _getGreeting()
-        : '${_getGreeting()}, $firstName';
-
-    return Scaffold(
-      backgroundColor: colorScheme.surface,
-      body: SafeArea(
-        bottom: false,
-        child: RefreshIndicator(
-          onRefresh: () => ref.read(taskListProvider.notifier).refresh(),
-          child: ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: EdgeInsets.only(
-              left: 20,
-              right: 20,
-              top: 24,
-              bottom: dockClearance(context),
+    return Column(
+      children: [
+        const AppHeader(),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: notifier.refresh,
+            child: ListView(
+              padding: EdgeInsets.fromLTRB(
+                20,
+                16,
+                20,
+                dockClearance(context) + 72,
+              ),
+              children: [
+                _Greeting(tasks: state.tasks, name: name, now: now),
+                const SizedBox(height: 12),
+                _FocusCard(tasks: state.tasks, now: now),
+                const SizedBox(height: 24),
+                AppSearchField(
+                  controller: _search,
+                  hint: 'Search your tasks, projects or tags...',
+                  onChanged: notifier.setSearchQuery,
+                  trailing: _RefineButton(active: state.hasRefinements),
+                ),
+                const SizedBox(height: 16),
+                _FilterRow(state: state, now: now),
+                const SizedBox(height: 12),
+                ..._list(state, visible, name),
+              ],
             ),
-            children: [
-              // Header Section
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(greeting, style: textTheme.displayMedium),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Container(
-                              width: 8,
-                              height: 8,
-                              decoration: BoxDecoration(
-                                color: colorScheme.secondary,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Flexible(
-                              child: Text(
-                                '$todayStr • ${pendingTasks.length} '
-                                '${pendingTasks.length == 1 ? 'task' : 'tasks'} pending',
-                                style: textTheme.bodyMedium?.copyWith(
-                                  color: colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  MomentumRing(
-                    progress: taskListState.completionPercentage,
-                    size: 64,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-
-              // Motivational Micro-card
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: colorScheme.tertiaryFixed,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.light_mode,
-                      color: colorScheme.onTertiaryFixedVariant,
-                      size: 24,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Calm Focus State',
-                            style: textTheme.titleMedium?.copyWith(
-                              color: colorScheme.onTertiaryFixed,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _focusMessage(highPriorityCount, overdueCount),
-                            style: textTheme.bodySmall?.copyWith(
-                              color: colorScheme.onTertiaryFixed,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              // Search Bar
-              Container(
-                height: 48,
-                padding: const EdgeInsets.only(left: 16, right: 4),
-                decoration: BoxDecoration(
-                  color: colorScheme.surfaceContainerHigh,
-                  borderRadius: BorderRadius.circular(24),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.search, color: colorScheme.outline),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextField(
-                        controller: _searchController,
-                        textInputAction: TextInputAction.search,
-                        onChanged: (value) {
-                          ref
-                              .read(taskListProvider.notifier)
-                              .setSearchQuery(value);
-                          setState(() {});
-                        },
-                        decoration: InputDecoration(
-                          hintText: 'Search tasks...',
-                          hintStyle: textTheme.bodyLarge?.copyWith(
-                            color: colorScheme.outline,
-                          ),
-                          border: InputBorder.none,
-                          isDense: true,
-                        ),
-                      ),
-                    ),
-                    if (_searchController.text.isNotEmpty)
-                      IconButton(
-                        tooltip: 'Clear search',
-                        icon: Icon(Icons.close, color: colorScheme.outline),
-                        onPressed: _clearSearch,
-                      )
-                    else
-                      const SizedBox(width: 12),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              // Filter Pills
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                clipBehavior: Clip.none,
-                child: Row(
-                  children: [
-                    _buildFilterPill(taskListState, TaskFilter.all, 'All'),
-                    const SizedBox(width: 12),
-                    _buildFilterPill(taskListState, TaskFilter.today, 'Today'),
-                    const SizedBox(width: 12),
-                    _buildFilterPill(
-                      taskListState,
-                      TaskFilter.upcoming,
-                      'Upcoming',
-                    ),
-                    const SizedBox(width: 12),
-                    _buildFilterPill(
-                      taskListState,
-                      TaskFilter.completed,
-                      'Completed',
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              // Task List
-              if (taskListState.isLoading && allTasks.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 48),
-                  child: Center(child: CircularProgressIndicator()),
-                )
-              else if (taskListState.errorMessage != null && allTasks.isEmpty)
-                _EmptyState(
-                  icon: Icons.error_outline,
-                  title: 'Could not load your tasks',
-                  message: taskListState.errorMessage!,
-                  actionLabel: 'Try again',
-                  onAction: () =>
-                      ref.read(taskListProvider.notifier).refresh(),
-                )
-              else if (displayTasks.isEmpty)
-                allTasks.isEmpty
-                    ? _EmptyState(
-                        icon: Icons.task_alt,
-                        title: 'No tasks yet',
-                        message: 'Tap + to add your first task.',
-                        actionLabel: 'Add a task',
-                        onAction: () => context.push(AppRoutes.addTask),
-                      )
-                    : const _EmptyState(
-                        icon: Icons.filter_alt_off_outlined,
-                        title: 'Nothing here',
-                        message: 'No tasks match this filter or search.',
-                      )
-              else
-                ...displayTasks.map(
-                  (task) => TaskCard(key: ValueKey(task.id), task: task),
-                ),
-            ],
           ),
         ),
-      ),
+      ],
     );
   }
 
-  String _focusMessage(int highPriority, int overdue) {
-    if (overdue > 0) {
-      return '$overdue overdue ${overdue == 1 ? 'task needs' : 'tasks need'} '
-          'your attention.';
-    }
-    if (highPriority > 0) {
-      return '$highPriority high-priority '
-          '${highPriority == 1 ? 'item requires' : 'items require'} attention.';
-    }
-    return 'All clear. Pick one thing and give it your full focus.';
-  }
-
-  Widget _buildFilterPill(TaskListState state, TaskFilter filter, String title) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-    final isSelected = state.filter == filter;
-    final count = state.countFor(filter);
-
-    return GestureDetector(
-      onTap: () => ref.read(taskListProvider.notifier).setFilter(filter),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? colorScheme.primary
-              : colorScheme.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(20),
+  List<Widget> _list(TaskListState state, List<Task> visible, String? name) {
+    if (state.isLoading && state.tasks.isEmpty) {
+      return const [
+        Padding(
+          padding: EdgeInsets.only(top: 48),
+          child: Center(child: CircularProgressIndicator()),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              title,
-              style: textTheme.labelLarge?.copyWith(
-                color: isSelected
-                    ? colorScheme.onPrimary
-                    : colorScheme.onSurfaceVariant,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+      ];
+    }
+    if (state.errorMessage != null && state.tasks.isEmpty) {
+      return [
+        EmptyState(
+          icon: Icons.cloud_off_rounded,
+          title: "Couldn't load your tasks",
+          message: state.errorMessage!,
+          action: TextButton(
+            onPressed: ref.read(taskListProvider.notifier).refresh,
+            child: const Text('Try again'),
+          ),
+        ),
+      ];
+    }
+    if (visible.isEmpty) {
+      final searching =
+          state.searchQuery.trim().isNotEmpty || state.hasRefinements;
+      final who = (name == null || name.isEmpty) ? '' : ', $name';
+      return [
+        const SizedBox(height: 4),
+        EmptyState(
+          icon: searching ? Icons.search_off_rounded : Icons.spa_outlined,
+          title: searching ? 'No matches' : 'Breathe easy$who',
+          message: searching
+              ? 'Nothing fits this search. Try other words or clear the '
+                    'filters.'
+              : state.tasks.isEmpty
+              ? 'No tasks yet. Tap + to add the first thing on your mind.'
+              : 'No tasks in this view right now. Take a mindful pause or '
+                    'plan ahead.',
+        ),
+      ];
+    }
+    return [
+      for (final task in visible)
+        Padding(
+          key: ValueKey(task.id),
+          padding: const EdgeInsets.only(bottom: 12),
+          child: TaskCard(task: task),
+        ),
+    ];
+  }
+}
+
+class _Greeting extends StatelessWidget {
+  final List<Task> tasks;
+  final String? name;
+  final DateTime now;
+
+  const _Greeting({required this.tasks, required this.name, required this.now});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final text = context.text;
+    final pending = tasks.where((t) => !t.isCompleted).length;
+    final today = tasks.where((t) => isSameDate(t.dueDate, now)).toList();
+    final progress = today.isNotEmpty
+        ? today.where((t) => t.isCompleted).length / today.length
+        : (tasks.isEmpty
+              ? 0.0
+              : tasks.where((t) => t.isCompleted).length / tasks.length);
+    final greeting = greetingFor(now);
+
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                name == null || name!.isEmpty ? greeting : '$greeting, $name',
+                style: text.displayMedium,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
               ),
+              const SizedBox(height: 2),
+              Row(
+                children: [
+                  Dot(color: colors.secondary),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      '${DateFormat('EEEE, MMM d').format(now)} • '
+                      '${plural(pending, 'task')} pending',
+                      style: text.bodySmall?.copyWith(
+                        color: colors.onSurfaceVariant,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        Tooltip(
+          message: today.isNotEmpty ? "Today's progress" : 'Overall progress',
+          child: Container(
+            width: 48,
+            height: 48,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: colors.surfaceContainerLow,
+              shape: BoxShape.circle,
+              boxShadow: context.isDark ? null : AppShadows.sm,
             ),
-            const SizedBox(width: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: isSelected
-                    ? colorScheme.onPrimary.withValues(alpha: 0.2)
-                    : colorScheme.outlineVariant.withValues(alpha: 0.4),
-                borderRadius: BorderRadius.circular(10),
-              ),
+            child: ProgressRing(
+              progress: progress,
+              size: 40,
+              strokeWidth: 3.4,
+              color: colors.primary,
+              trackColor: colors.surfaceContainerHighest,
               child: Text(
-                count.toString(),
-                style: textTheme.labelSmall?.copyWith(
-                  color: isSelected
-                      ? colorScheme.onPrimary
-                      : colorScheme.onSurfaceVariant,
+                '${(progress * 100).round()}%',
+                style: text.labelSmall?.copyWith(
+                  color: colors.primary,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0,
                 ),
               ),
             ),
-          ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// One line of calm guidance based on what's actually on the list.
+class _FocusCard extends StatelessWidget {
+  final List<Task> tasks;
+  final DateTime now;
+
+  const _FocusCard({required this.tasks, required this.now});
+
+  (String, String, IconData) _message() {
+    final open = tasks.where((t) => !t.isCompleted).toList();
+    final overdue = open.where((t) => t.isOverdue(now)).toList();
+    final today = open
+        .where((t) => isSameDate(t.dueDate, now) && !t.isOverdue(now))
+        .toList();
+    final urgent = today.where((t) => t.priority == TaskPriority.high).toList()
+      ..sort((a, b) => a.deadline.compareTo(b.deadline));
+
+    if (tasks.isEmpty) {
+      return (
+        'A Fresh Start',
+        'Add your first task with the + button below.',
+        Icons.wb_sunny_outlined,
+      );
+    }
+    if (overdue.isNotEmpty) {
+      final n = overdue.length;
+      return (
+        'Needs Attention',
+        '${plural(n, 'task')} ${n == 1 ? 'is' : 'are'} overdue. Clear '
+            '${n == 1 ? 'it' : 'them'} first to get back into flow.',
+        Icons.history_rounded,
+      );
+    }
+    if (urgent.isNotEmpty) {
+      final n = urgent.length;
+      final by = urgent.last.isAllDay
+          ? 'today'
+          : 'before ${shortTime(urgent.last.deadline)}';
+      return (
+        'Calm Focus State',
+        '$n high-priority ${n == 1 ? 'item needs' : 'items need'} '
+            'attention $by',
+        Icons.wb_sunny_outlined,
+      );
+    }
+    if (today.isNotEmpty) {
+      return (
+        'Calm Focus State',
+        '${plural(today.length, 'task')} planned for today. One at a time.',
+        Icons.wb_sunny_outlined,
+      );
+    }
+    if (open.isEmpty) {
+      return (
+        'All Clear',
+        'Everything is done. Enjoy the calm.',
+        Icons.spa_outlined,
+      );
+    }
+    return (
+      'Calm Focus State',
+      'Nothing is due today. A good moment to plan ahead.',
+      Icons.wb_sunny_outlined,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final (title, body, icon) = _message();
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: context.isDark ? null : AppShadows.sm,
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: colors.primaryFixed,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, size: 18, color: colors.primary),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: context.text.labelMedium),
+                Text(
+                  body,
+                  style: context.text.bodySmall?.copyWith(
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Icon(
+            Icons.auto_awesome_outlined,
+            size: 20,
+            color: colors.outlineVariant,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RefineButton extends StatelessWidget {
+  final bool active;
+
+  const _RefineButton({required this.active});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return IconButton(
+      tooltip: 'Sort and filter',
+      visualDensity: VisualDensity.compact,
+      onPressed: () => showTaskFilterSheet(context),
+      icon: Badge(
+        isLabelVisible: active,
+        smallSize: 7,
+        backgroundColor: colors.primary,
+        child: Icon(
+          Icons.tune_rounded,
+          size: 20,
+          color: active ? colors.primary : colors.onSurfaceVariant,
         ),
       ),
     );
   }
 }
 
-class _EmptyState extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String message;
-  final String? actionLabel;
-  final VoidCallback? onAction;
+class _FilterRow extends ConsumerWidget {
+  final TaskListState state;
+  final DateTime now;
 
-  const _EmptyState({
-    required this.icon,
-    required this.title,
-    required this.message,
-    this.actionLabel,
-    this.onAction,
-  });
+  const _FilterRow({required this.state, required this.now});
+
+  static const _labels = {
+    TaskFilter.all: 'All',
+    TaskFilter.today: 'Today',
+    TaskFilter.upcoming: 'Upcoming',
+    TaskFilter.completed: 'Completed',
+  };
 
   @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 40),
-      child: Column(
+  Widget build(BuildContext context, WidgetRef ref) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      clipBehavior: Clip.none,
+      child: Row(
         children: [
-          Icon(icon, size: 48, color: colorScheme.outline),
-          const SizedBox(height: 12),
-          Text(title, style: textTheme.titleMedium),
-          const SizedBox(height: 4),
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: textTheme.bodyMedium?.copyWith(
-              color: colorScheme.onSurfaceVariant,
+          for (final filter in TaskFilter.values)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: ChoicePill(
+                label: _labels[filter]!,
+                count: '${state.countFor(filter, now)}',
+                selected: state.filter == filter,
+                strong: true,
+                onTap: () =>
+                    ref.read(taskListProvider.notifier).setFilter(filter),
+              ),
             ),
-          ),
-          if (actionLabel != null && onAction != null) ...[
-            const SizedBox(height: 16),
-            FilledButton.tonal(onPressed: onAction, child: Text(actionLabel!)),
-          ],
         ],
       ),
     );

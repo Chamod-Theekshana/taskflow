@@ -1,8 +1,6 @@
-/// Base type for expected, user-facing failures (wrong password, duplicate
-/// e-mail, ...).
+/// An expected, user-facing error (wrong password, duplicate e-mail...).
 ///
-/// `toString()` returns only the message so it can be shown directly in a
-/// SnackBar without the noisy `Exception:` prefix.
+/// `toString()` is just the message so it can go straight into a SnackBar.
 class Failure implements Exception {
   final String message;
 
@@ -20,7 +18,7 @@ class DatabaseFailure extends Failure {
   const DatabaseFailure(super.message);
 }
 
-/// Turns any thrown object into a message that is safe to show to the user.
+/// Turns anything that was thrown into text that is fine to show the user.
 String describeError(Object error) {
   if (error is Failure) return error.message;
   final text = error.toString();

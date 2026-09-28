@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="splash_background">#FAF8FF</color>
+    <color name="launcher_gradient_start">#4648D4</color>
+    <color name="launcher_gradient_end">#6366F1</color>
+</resources>

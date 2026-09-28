@@ -1,30 +1,36 @@
-/// Route paths used across the app.
 abstract final class AppRoutes {
   static const splash = '/splash';
   static const login = '/login';
   static const signup = '/signup';
-  static const home = '/home';
+
+  // Tabs, in dock order.
+  static const search = '/search';
   static const calendar = '/calendar';
+  static const stats = '/stats';
+  static const home = '/home';
   static const profile = '/profile';
+
   static const addTask = '/add-task';
 
   static String task(int id) => '/task/$id';
   static String editTask(int id) => '/edit-task/$id';
+
+  static String addTaskOn(DateTime day) {
+    final m = day.month.toString().padLeft(2, '0');
+    final d = day.day.toString().padLeft(2, '0');
+    return '$addTask?date=${day.year}-$m-$d';
+  }
 }
 
-/// Pure navigation guard, kept free of Flutter/Riverpod types so it can be
-/// unit tested.
+/// Where the router should send the user, or null to stay put.
 ///
-/// * While the saved session is still being restored, stay on the splash
-///   screen.
-/// * Signed-out users may only see the login and sign-up screens.
-/// * Signed-in users never see splash / login / sign-up.
+/// * Until the splash screen has finished, everything goes to the splash.
+/// * Signed-out users can only see login and sign-up.
+/// * Signed-in users never see splash, login or sign-up.
 ///
-/// The original version counted `/splash` as an "auth route" that signed-out
-/// users were allowed to stay on, so after start-up nothing ever navigated
-/// away from the splash screen.
-String? resolveAuthRedirect({
-  required bool isRestoringSession,
+/// Kept free of Flutter types so it can be unit tested.
+String? resolveRedirect({
+  required bool splashDone,
   required bool isLoggedIn,
   required String location,
 }) {
@@ -32,7 +38,7 @@ String? resolveAuthRedirect({
   final onAuthPage =
       location == AppRoutes.login || location == AppRoutes.signup;
 
-  if (isRestoringSession) return onSplash ? null : AppRoutes.splash;
+  if (!splashDone) return onSplash ? null : AppRoutes.splash;
   if (!isLoggedIn) return onAuthPage ? null : AppRoutes.login;
   if (onSplash || onAuthPage) return AppRoutes.home;
   return null;

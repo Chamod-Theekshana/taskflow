@@ -1,33 +1,39 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/theme/app_theme.dart';
 import '../../features/auth/presentation/providers/auth_provider.dart';
 
-/// Initials avatar for the signed-in user.
-///
-/// Replaces the previous `NetworkImage('https://i.pravatar.cc/...')`, which
-/// showed a stranger's photo, needed internet access in an offline-first app
-/// and failed in release builds (no INTERNET permission).
+/// Initials of the signed-in user on a soft indigo disc.
 class UserAvatar extends ConsumerWidget {
-  final double radius;
+  final double size;
 
-  const UserAvatar({super.key, this.radius = 16});
+  const UserAvatar({super.key, this.size = 32});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final user = ref.watch(authProvider).value;
-    final initials = user?.initials ?? '?';
+    final colors = context.colors;
+    final initials = ref.watch(authProvider).value?.initials ?? '?';
 
-    return CircleAvatar(
-      radius: radius,
-      backgroundColor: colorScheme.primaryFixed,
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [colors.primaryFixed, colors.surfaceContainerHigh],
+        ),
+      ),
       child: Text(
         initials,
-        style: TextStyle(
-          color: colorScheme.onPrimaryFixed,
+        style: context.text.labelLarge?.copyWith(
+          fontSize: size * 0.36,
+          height: 1,
           fontWeight: FontWeight.w700,
-          fontSize: radius * 0.8,
+          color: colors.onPrimaryFixedVariant,
         ),
       ),
     );

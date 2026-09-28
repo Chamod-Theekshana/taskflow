@@ -4,230 +4,188 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/error/failures.dart';
 import '../../../../core/routing/route_guard.dart';
+import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/date_time_utils.dart';
+import '../../../../shared/widgets/ui.dart';
 import '../../domain/entities/task.dart';
 import '../providers/task_provider.dart';
 import 'task_ui.dart';
 
-enum _CardAction { edit, delete }
+/// Completes / reopens a task and tells the user when a repeating task has
+/// been scheduled again.
+Future<void> toggleTaskDone(
+  BuildContext context,
+  WidgetRef ref,
+  Task task,
+) async {
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    final next = await ref.read(taskListProvider.notifier).toggleComplete(task);
+    if (next != null) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Next one is set for ${dayLabel(next.dueDate)}.'),
+        ),
+      );
+    }
+  } catch (e) {
+    messenger.showSnackBar(SnackBar(content: Text(describeError(e))));
+  }
+}
 
 class TaskCard extends ConsumerWidget {
   final Task task;
 
   const TaskCard({super.key, required this.task});
 
-  Future<void> _run(BuildContext context, Future<void> Function() action) async {
-    try {
-      await action();
-    } catch (e) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(describeError(e))));
-    }
-  }
-
-  Future<void> _onMenu(
-    BuildContext context,
-    WidgetRef ref,
-    _CardAction action,
-  ) async {
+  Future<void> _delete(BuildContext context, WidgetRef ref) async {
     final id = task.id;
-    if (id == null) return;
-    switch (action) {
-      case _CardAction.edit:
-        context.push(AppRoutes.editTask(id));
-      case _CardAction.delete:
-        final confirmed = await confirmDeleteTask(context);
-        if (!confirmed || !context.mounted) return;
-        await _run(
-          context,
-          () => ref.read(taskListProvider.notifier).deleteTask(id),
-        );
+    if (id == null || !await confirmDelete(context)) return;
+    try {
+      await ref.read(taskListProvider.notifier).deleteTask(id);
+      if (context.mounted) showMessage(context, 'Task deleted.');
+    } catch (e) {
+      if (context.mounted) showMessage(context, describeError(e));
     }
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final textTheme = theme.textTheme;
-    final accent = priorityAccent(colorScheme, task.priority);
-    final isCompleted = task.isCompleted;
-    final overdue = task.isOverdue();
+    final colors = context.colors;
+    final text = context.text;
+    final done = task.isCompleted;
+    final id = task.id;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: colorScheme.shadow.withValues(alpha: 0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Material(
-        type: MaterialType.transparency,
-        child: InkWell(
-          onTap: task.id == null
-              ? null
-              : () => context.push(AppRoutes.task(task.id!)),
-          child: IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+    return AnimatedOpacity(
+      duration: const Duration(milliseconds: 200),
+      opacity: done ? 0.8 : 1,
+      child: Container(
+        decoration: BoxDecoration(
+          color: done
+              ? colors.surfaceContainerLow.withValues(alpha: 0.7)
+              : colors.surfaceContainerLowest,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: context.isDark ? null : AppShadows.sm,
+        ),
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: id == null ? null : () => context.push(AppRoutes.task(id)),
+            child: Stack(
               children: [
-                // Left accent strip
-                Container(width: 4, color: accent),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 4, 16),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Circular checkbox
-                        Semantics(
-                          checked: isCompleted,
-                          label: isCompleted
-                              ? 'Mark as not done'
-                              : 'Mark as done',
-                          child: GestureDetector(
-                            onTap: task.id == null
-                                ? null
-                                : () => _run(
-                                    context,
-                                    () => ref
-                                        .read(taskListProvider.notifier)
-                                        .toggleComplete(task),
+                Positioned(
+                  left: 0,
+                  top: 16,
+                  bottom: 16,
+                  child: Container(
+                    width: 4,
+                    decoration: BoxDecoration(
+                      color: done
+                          ? colors.secondary
+                          : priorityAccent(colors, task.priority),
+                      borderRadius: const BorderRadius.horizontal(
+                        right: Radius.circular(4),
+                      ),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 4, 16),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TaskCheckbox(
+                        checked: done,
+                        onTap: () => toggleTaskDone(context, ref, task),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Text(
+                                      task.title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: text.headlineSmall?.copyWith(
+                                        letterSpacing: -0.2,
+                                        color: done ? colors.outline : null,
+                                        decoration: done
+                                            ? TextDecoration.lineThrough
+                                            : null,
+                                      ),
+                                    ),
                                   ),
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 200),
-                              width: 24,
-                              height: 24,
-                              margin: const EdgeInsets.only(top: 2, right: 12),
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: isCompleted
-                                    ? colorScheme.secondary
-                                    : Colors.transparent,
-                                border: Border.all(
-                                  color: isCompleted
-                                      ? colorScheme.secondary
-                                      : colorScheme.outline,
-                                  width: 2,
                                 ),
-                              ),
-                              child: isCompleted
-                                  ? Icon(
-                                      Icons.check,
-                                      size: 16,
-                                      color: colorScheme.onSecondary,
-                                    )
-                                  : null,
+                                _TaskMenu(
+                                  onEdit: id == null
+                                      ? null
+                                      : () => context.push(
+                                          AppRoutes.editTask(id),
+                                        ),
+                                  onDelete: () => _delete(context, ref),
+                                ),
+                              ],
                             ),
-                          ),
-                        ),
-                        // Content
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                task.title,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: textTheme.headlineSmall?.copyWith(
-                                  decoration: isCompleted
-                                      ? TextDecoration.lineThrough
-                                      : null,
-                                  color: isCompleted
-                                      ? colorScheme.onSurface.withValues(
-                                          alpha: 0.45,
-                                        )
-                                      : colorScheme.onSurface,
+                            if (task.description.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(
+                                  top: 2,
+                                  right: 12,
                                 ),
-                              ),
-                              if (task.description.isNotEmpty) ...[
-                                const SizedBox(height: 4),
-                                Text(
+                                child: Text(
                                   task.description,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: textTheme.bodySmall?.copyWith(
-                                    color: colorScheme.onSurfaceVariant,
+                                  style: text.bodySmall?.copyWith(
+                                    color: done
+                                        ? colors.outline
+                                        : colors.onSurfaceVariant,
+                                    decoration: done
+                                        ? TextDecoration.lineThrough
+                                        : null,
                                   ),
                                 ),
-                              ],
-                              const SizedBox(height: 12),
-                              // Metadata pills
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: [
-                                  _Pill(
-                                    icon: overdue
-                                        ? Icons.warning_amber_rounded
-                                        : Icons.calendar_today,
-                                    label: dueSummary(task),
-                                    background: overdue
-                                        ? colorScheme.errorContainer
-                                        : colorScheme.surfaceContainerHigh,
-                                    foreground: overdue
-                                        ? colorScheme.onErrorContainer
-                                        : colorScheme.onSurfaceVariant,
+                              ),
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                if (done)
+                                  Pill(
+                                    label: 'Completed',
+                                    icon: Icons.done_all_rounded,
+                                    background: colors.secondaryContainer,
+                                    foreground: colors.onSecondaryContainer,
+                                    style: text.labelSmall?.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  )
+                                else ...[
+                                  DueBadge(task: task),
+                                  PriorityBadge(
+                                    priority: task.priority,
+                                    long: true,
                                   ),
-                                  _PriorityPill(priority: task.priority),
-                                  if (task.category.isNotEmpty)
-                                    _Pill(
-                                      icon: categoryIcon(task.category),
-                                      label: task.category,
-                                      background:
-                                          colorScheme.surfaceContainerHigh,
-                                      foreground: colorScheme.onSurfaceVariant,
-                                    ),
-                                  if (task.subtasks.isNotEmpty)
-                                    _Pill(
-                                      icon: Icons.checklist,
-                                      label:
-                                          '${task.subtasks.where((s) => s.isCompleted).length}'
-                                          '/${task.subtasks.length}',
-                                      background:
-                                          colorScheme.surfaceContainerHigh,
-                                      foreground: colorScheme.onSurfaceVariant,
-                                    ),
                                 ],
-                              ),
-                            ],
-                          ),
-                        ),
-                        // More menu (was a decorative icon that did nothing)
-                        PopupMenuButton<_CardAction>(
-                          tooltip: 'Task options',
-                          icon: Icon(Icons.more_horiz, color: colorScheme.outline),
-                          onSelected: (action) => _onMenu(context, ref, action),
-                          itemBuilder: (context) => const [
-                            PopupMenuItem(
-                              value: _CardAction.edit,
-                              child: ListTile(
-                                leading: Icon(Icons.edit_outlined),
-                                title: Text('Edit'),
-                                contentPadding: EdgeInsets.zero,
-                              ),
-                            ),
-                            PopupMenuItem(
-                              value: _CardAction.delete,
-                              child: ListTile(
-                                leading: Icon(Icons.delete_outline),
-                                title: Text('Delete'),
-                                contentPadding: EdgeInsets.zero,
-                              ),
+                                if (task.category.isNotEmpty)
+                                  CategoryTag(
+                                    category: task.category,
+                                    muted: done,
+                                  ),
+                              ],
                             ),
                           ],
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -239,73 +197,45 @@ class TaskCard extends ConsumerWidget {
   }
 }
 
-class _Pill extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color background;
-  final Color foreground;
+class _TaskMenu extends StatelessWidget {
+  final VoidCallback? onEdit;
+  final VoidCallback onDelete;
 
-  const _Pill({
-    required this.icon,
-    required this.label,
-    required this.background,
-    required this.foreground,
-  });
+  const _TaskMenu({required this.onEdit, required this.onDelete});
 
   @override
   Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: foreground),
-          const SizedBox(width: 4),
-          Text(label, style: textTheme.labelMedium?.copyWith(color: foreground)),
-        ],
-      ),
-    );
-  }
-}
-
-class _PriorityPill extends StatelessWidget {
-  final TaskPriority priority;
-
-  const _PriorityPill({required this.priority});
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-    final foreground = priorityForeground(colorScheme, priority);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: priorityBackground(colorScheme, priority),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 6,
-            height: 6,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: priorityAccent(colorScheme, priority),
+    final colors = context.colors;
+    return SizedBox(
+      width: 36,
+      height: 32,
+      child: PopupMenuButton<String>(
+        tooltip: 'Task options',
+        useRootNavigator: true,
+        padding: EdgeInsets.zero,
+        iconSize: 20,
+        icon: Icon(Icons.more_vert_rounded, color: colors.outlineVariant),
+        onSelected: (value) {
+          if (value == 'edit') onEdit?.call();
+          if (value == 'delete') onDelete();
+        },
+        itemBuilder: (context) => [
+          const PopupMenuItem(
+            value: 'edit',
+            child: ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.edit_outlined),
+              title: Text('Edit'),
             ),
           ),
-          const SizedBox(width: 4),
-          Text(
-            priority.label,
-            style: textTheme.labelMedium?.copyWith(
-              color: foreground,
-              fontWeight: FontWeight.w600,
+          PopupMenuItem(
+            value: 'delete',
+            child: ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.delete_outline_rounded, color: colors.error),
+              title: Text('Delete', style: TextStyle(color: colors.error)),
             ),
           ),
         ],

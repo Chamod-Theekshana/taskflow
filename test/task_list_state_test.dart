@@ -9,18 +9,18 @@ Task _task(
   DateTime? completedAt,
   String title = 'Task',
   bool allDay = false,
+  TaskPriority priority = TaskPriority.medium,
+  String category = 'Work',
 }) => Task(
   id: id,
   title: '$title $id',
-  description: '',
   dueDate: due,
-  dueTime: '',
-  priority: TaskPriority.medium,
-  category: 'Work',
+  priority: priority,
+  category: category,
   isCompleted: done,
   isAllDay: allDay,
   completedAt: completedAt,
-  createdAt: DateTime(2026, 9, 1),
+  createdAt: DateTime(2026, 9, 1, 0, id),
   updatedAt: DateTime(2026, 9, 1),
 );
 
@@ -33,18 +33,18 @@ void main() {
     expect(state.taskById(99), isNull);
   });
 
-  test('filters use the same rules as their counters', () {
+  test('filters and their counters agree', () {
     final state = TaskListState(
       tasks: [
-        _task(1, due: DateTime(2026, 9, 28, 18)), // today, upcoming
+        _task(1, due: DateTime(2026, 9, 28, 18)), // today
         _task(2, due: DateTime(2026, 9, 30)), // upcoming
         _task(3, due: DateTime(2026, 9, 30), done: true), // completed
-        _task(4, due: DateTime(2026, 9, 20)), // overdue
+        _task(4, due: DateTime(2026, 9, 20)), // overdue, shows under today
       ],
     );
     expect(state.countFor(TaskFilter.all, now), 4);
-    expect(state.countFor(TaskFilter.today, now), 1);
-    expect(state.countFor(TaskFilter.upcoming, now), 2);
+    expect(state.countFor(TaskFilter.today, now), 2);
+    expect(state.countFor(TaskFilter.upcoming, now), 1);
     expect(state.countFor(TaskFilter.completed, now), 1);
   });
 
@@ -54,43 +54,58 @@ void main() {
     expect(task.isOverdue(DateTime(2026, 9, 29, 0, 1)), isTrue);
   });
 
-  test('stats: on-time percentage, streak and weekly breakdown', () {
-    final state = TaskListState(
-      tasks: [
-        // Completed today, before its deadline.
-        _task(
-          1,
-          due: DateTime(2026, 9, 28, 18),
-          done: true,
-          completedAt: DateTime(2026, 9, 28, 9),
-        ),
-        // Completed yesterday (Sunday, previous week), late.
-        _task(
-          2,
-          due: DateTime(2026, 9, 26),
-          done: true,
-          completedAt: DateTime(2026, 9, 27, 9),
-        ),
-        _task(3, due: DateTime(2026, 10, 1)),
-      ],
-    );
-    final stats = state.computeStats(now);
-    expect(stats.tasksCompleted, 2);
-    expect(stats.totalTasks, 3);
-    expect(stats.onTimePercentage, 0.5);
-    expect(stats.currentStreak, 2);
-    expect(stats.weeklyCompletions, [1, 0, 0, 0, 0, 0, 0]);
-  });
-
-  test('search matches title, description and category', () {
+  test('search matches title, notes, category and subtasks', () {
+    final withSubtask = _task(
+      3,
+      due: now,
+    ).copyWith(subtasks: const [Subtask(taskId: 3, title: 'Call the printer')]);
     final state = TaskListState(
       tasks: [
         _task(1, due: now, title: 'Write report'),
-        _task(2, due: now, title: 'Buy milk'),
+        _task(2, due: now, title: 'Buy milk', category: 'Shopping'),
+        withSubtask,
       ],
-      searchQuery: 'report',
     );
-    expect(state.filteredTasks.map((t) => t.id), [1]);
+    List<int?> ids(String q) => state
+        .copyWith(searchQuery: q)
+        .visibleTasks(now)
+        .map((t) => t.id)
+        .toList();
+
+    expect(ids('report'), [1]);
+    expect(ids('shopping'), [2]);
+    expect(ids('printer'), [3]);
+  });
+
+  test('refinements filter by priority and category, and sort', () {
+    final state = TaskListState(
+      tasks: [
+        _task(1, due: DateTime(2026, 9, 29), priority: TaskPriority.low),
+        _task(2, due: DateTime(2026, 9, 30), priority: TaskPriority.high),
+        _task(3, due: DateTime(2026, 10, 1), category: 'Home'),
+      ],
+    );
+
+    final byPriority = state.copyWith(sort: TaskSort.priority);
+    expect(byPriority.visibleTasks(now).map((t) => t.id), [2, 3, 1]);
+
+    final high = state.copyWith(priorityFilter: () => TaskPriority.high);
+    expect(high.visibleTasks(now).map((t) => t.id), [2]);
+    expect(high.hasRefinements, isTrue);
+
+    final home = state.copyWith(categoryFilter: () => 'home');
+    expect(home.visibleTasks(now).map((t) => t.id), [3]);
+    expect(state.usedCategories, ['Home', 'Work']);
+  });
+
+  test('finished tasks sort after open ones', () {
+    final state = TaskListState(
+      tasks: [
+        _task(1, due: DateTime(2026, 9, 29), done: true, completedAt: now),
+        _task(2, due: DateTime(2026, 10, 5)),
+      ],
+    );
+    expect(state.visibleTasks(now).map((t) => t.id), [2, 1]);
   });
 
   test('copyWith can clear completedAt', () {

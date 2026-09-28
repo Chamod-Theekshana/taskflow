@@ -9,7 +9,7 @@ import '../../domain/repositories/auth_repository.dart';
 import '../../domain/usecases/auth_usecases.dart';
 
 final authLocalDataSourceProvider = Provider<AuthLocalDataSource>((ref) {
-  return AuthLocalDataSourceImpl(ref.watch(dbProviderProvider));
+  return AuthLocalDataSourceImpl(ref.watch(databaseProvider));
 });
 
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
@@ -19,47 +19,29 @@ final authRepositoryProvider = Provider<AuthRepository>((ref) {
   );
 });
 
-/// The signed-in user (`null` when signed out).
+/// The signed-in user, or null.
 ///
-/// The provider is only in the *loading* state while the stored session is
-/// being restored at start-up. Sign-in, sign-up and sign-out deliberately do
-/// **not** switch it back to loading: the router treats "loading" as "show
-/// the splash screen", so doing that used to unmount the login form mid
-/// request (hiding any error) and leave the app stuck on the splash screen.
-/// Failures are thrown to the caller instead, which shows them in the form.
+/// Only the start-up session restore puts this in the loading state. Sign in,
+/// sign up and sign out update it directly and throw failures back to the
+/// form that called them.
 final authProvider = AsyncNotifierProvider<Auth, User?>(Auth.new);
 
-/// True only while the saved session is being restored at start-up — the
-/// one time the app should sit on the splash screen.
+/// True only while the saved session is being read at start-up.
 bool isRestoringSession(AsyncValue<User?> auth) =>
     auth.isLoading && !auth.hasValue && !auth.hasError;
 
 class Auth extends AsyncNotifier<User?> {
   AuthRepository get _repository => ref.read(authRepositoryProvider);
 
-  /// Upper bound for restoring the saved session. Reading one row from the
-  /// local database takes milliseconds; if it ever takes longer than this,
-  /// something is wrong and the user is better off on the login screen than
-  /// on a splash screen that never ends.
-  static const _restoreTimeout = Duration(seconds: 10);
-
   @override
   Future<User?> build() async {
     try {
-      final user = await GetCurrentUserUseCase(
+      return await GetCurrentUserUseCase(
         _repository,
-      )().timeout(_restoreTimeout);
-      debugPrint(
-        'TaskFlow: session restored '
-        '(${user == null ? 'signed out' : 'signed in'})',
-      );
-      return user;
-    } catch (error, stackTrace) {
-      // Never leave the app stuck on the splash screen: a session that
-      // cannot be restored is treated as "signed out".
-      debugPrint(
-        'TaskFlow: could not restore the saved session: $error\n$stackTrace',
-      );
+      )().timeout(const Duration(seconds: 10));
+    } catch (error) {
+      // A session that can't be restored just means "signed out".
+      debugPrint('Could not restore the saved session: $error');
       return null;
     }
   }
@@ -69,17 +51,21 @@ class Auth extends AsyncNotifier<User?> {
     String password, {
     bool rememberSession = true,
   }) async {
-    final user = await LoginUseCase(
-      _repository,
-    )(email, password, rememberSession: rememberSession);
+    final user = await LoginUseCase(_repository)(
+      email,
+      password,
+      rememberSession: rememberSession,
+    );
     if (ref.mounted) state = AsyncData(user);
     return user;
   }
 
   Future<User> signup(String fullName, String email, String password) async {
-    final user = await SignupUseCase(
-      _repository,
-    )(fullName: fullName, email: email, password: password);
+    final user = await SignupUseCase(_repository)(
+      fullName: fullName,
+      email: email,
+      password: password,
+    );
     if (ref.mounted) state = AsyncData(user);
     return user;
   }
@@ -87,9 +73,10 @@ class Auth extends AsyncNotifier<User?> {
   Future<void> updateFullName(String fullName) async {
     final current = state.value;
     if (current == null) return;
-    final updated = await UpdateProfileUseCase(
-      _repository,
-    )(current.id, fullName);
+    final updated = await UpdateProfileUseCase(_repository)(
+      current.id,
+      fullName,
+    );
     if (ref.mounted) state = AsyncData(updated);
   }
 

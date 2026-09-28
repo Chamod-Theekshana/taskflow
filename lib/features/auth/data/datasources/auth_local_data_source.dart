@@ -12,14 +12,12 @@ abstract class AuthLocalDataSource {
   Future<UserModel> saveUser(UserModel user, String password);
   Future<bool> verifyPassword(String email, String password);
   Future<UserModel?> updateFullName(String id, String fullName);
-  Future<void> deleteUser(String id);
 }
 
-/// Salted, iterated SHA-256 password hashing.
+/// Salted, iterated SHA-256.
 ///
-/// Stored format: `v2$<salt>$<hash>`. Hashes written by older versions of the
-/// app (plain, unsalted SHA-256 hex) are still accepted and are upgraded to
-/// the new format on the next successful login.
+/// Stored as `v2$<salt>$<hash>`. Plain SHA-256 hashes from the first version
+/// of the app still verify and are re-hashed on the next successful login.
 class PasswordHasher {
   PasswordHasher._();
 
@@ -34,7 +32,6 @@ class PasswordHasher {
     if (parts.length == 3 && parts[0] == _prefix) {
       return _hashWithSalt(password, parts[1]) == stored;
     }
-    // Legacy format.
     return sha256.convert(utf8.encode(password)).toString() == stored;
   }
 
@@ -124,10 +121,5 @@ class AuthLocalDataSourceImpl implements AuthLocalDataSource {
       whereArgs: [id],
     );
     return getUser(id);
-  }
-
-  @override
-  Future<void> deleteUser(String id) async {
-    await db.delete('users', where: 'id = ?', whereArgs: [id]);
   }
 }

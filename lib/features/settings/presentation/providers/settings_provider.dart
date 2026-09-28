@@ -1,54 +1,72 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../../../core/di/providers.dart';
-import '../../domain/entities/settings_entity.dart';
-import '../../domain/repositories/settings_repository.dart';
-import '../../data/datasources/settings_local_data_source.dart';
-import '../../data/repositories/settings_repository_impl.dart';
 import '../../../tasks/domain/entities/task.dart';
+import '../../data/settings_repository.dart';
+import '../../domain/settings.dart';
 
-final settingsRepositoryProvider = Provider<SettingsRepository>((ref) {
-  final prefs = ref.watch(sharedPreferencesProvider);
-  final dataSource = SettingsLocalDataSourceImpl(prefs);
-  return SettingsRepositoryImpl(dataSource);
-});
+final settingsRepositoryProvider = Provider<SettingsRepository>(
+  (ref) => SettingsRepository(ref.watch(sharedPreferencesProvider)),
+);
 
-final settingsControllerProvider =
-    AsyncNotifierProvider<SettingsController, SettingsEntity>(SettingsController.new);
+final settingsProvider = NotifierProvider<SettingsController, AppSettings>(
+  SettingsController.new,
+);
 
-class SettingsController extends AsyncNotifier<SettingsEntity> {
+class SettingsController extends Notifier<AppSettings> {
   @override
-  Future<SettingsEntity> build() =>
-      ref.read(settingsRepositoryProvider).getSettings();
+  AppSettings build() => ref.read(settingsRepositoryProvider).load();
 
-  /// Applies [change] optimistically and persists it. If saving fails the
-  /// previous value is restored instead of leaving the UI out of sync.
-  Future<void> _update(
-    SettingsEntity Function(SettingsEntity current) change,
-  ) async {
-    final current = state.value;
-    if (current == null) return;
-    final updated = change(current);
-    state = AsyncData(updated);
+  /// Applies [change] right away and saves it. If saving fails the old
+  /// value comes back so the screen never lies about what is stored.
+  Future<void> _update(AppSettings Function(AppSettings s) change) async {
+    final previous = state;
+    state = change(previous);
     try {
-      await ref.read(settingsRepositoryProvider).saveSettings(updated);
+      await ref.read(settingsRepositoryProvider).save(state);
     } catch (_) {
-      if (ref.mounted) state = AsyncData(current);
+      if (ref.mounted) state = previous;
     }
   }
 
-  Future<void> updatePushNotificationsEnabled(bool value) =>
-      _update((s) => s.copyWith(pushNotificationsEnabled: value));
+  Future<void> setNotificationsEnabled(bool value) =>
+      _update((s) => s.copyWith(notificationsEnabled: value));
 
-  Future<void> updateDailyDigestEnabled(bool value) =>
+  Future<void> setDailyDigestEnabled(bool value) =>
       _update((s) => s.copyWith(dailyDigestEnabled: value));
 
-  Future<void> updateDailyDigestTime(String time) =>
+  Future<void> setDailyDigestTime(String time) =>
       _update((s) => s.copyWith(dailyDigestTime: time));
 
-  Future<void> updateThemeMode(ThemeMode mode) =>
+  Future<void> setThemeMode(ThemeMode mode) =>
       _update((s) => s.copyWith(themeMode: mode));
 
-  Future<void> updateDefaultPriority(TaskPriority priority) =>
+  Future<void> setDefaultPriority(TaskPriority priority) =>
       _update((s) => s.copyWith(defaultPriority: priority));
+
+  Future<void> setDailyGoal(int goal) =>
+      _update((s) => s.copyWith(dailyGoal: goal.clamp(1, 20)));
+
+  Future<void> addCategory(String name) {
+    final clean = name.trim();
+    if (clean.isEmpty) return Future.value();
+    return _update((s) {
+      final exists = [
+        ...kBuiltInCategories,
+        ...s.customCategories,
+      ].any((c) => c.toLowerCase() == clean.toLowerCase());
+      if (exists) return s;
+      return s.copyWith(customCategories: [...s.customCategories, clean]);
+    });
+  }
+
+  Future<void> removeCategory(String name) => _update(
+    (s) => s.copyWith(
+      customCategories: [
+        for (final c in s.customCategories)
+          if (c != name) c,
+      ],
+    ),
+  );
 }

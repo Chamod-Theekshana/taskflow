@@ -1,15 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
 import '../../../../core/error/failures.dart';
 import '../../../../core/routing/route_guard.dart';
+import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/date_time_utils.dart';
+import '../../../../shared/widgets/app_header.dart';
 import '../../../../shared/widgets/not_found_screen.dart';
-import '../../../../shared/widgets/user_avatar.dart';
+import '../../../../shared/widgets/ui.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../domain/entities/task.dart';
 import '../providers/task_provider.dart';
+import '../widgets/task_card.dart';
+import '../widgets/task_option_sheets.dart';
 import '../widgets/task_ui.dart';
 
 class TaskDetailScreen extends ConsumerStatefulWidget {
@@ -22,7 +27,9 @@ class TaskDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
-  final TextEditingController _subtaskController = TextEditingController();
+  final _subtaskController = TextEditingController();
+  // Subtasks swiped away but not yet gone from the reloaded list.
+  final _removedSubtasks = <int>{};
   bool _deleting = false;
 
   @override
@@ -31,734 +38,807 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
     super.dispose();
   }
 
-  void _goBack() {
-    if (context.canPop()) {
-      context.pop();
-    } else {
-      context.go(AppRoutes.home);
-    }
-  }
-
-  Future<void> _run(Future<void> Function() action) async {
+  /// Runs [action], showing any error. Returns whether it succeeded.
+  Future<bool> _run(Future<void> Function() action) async {
     try {
       await action();
+      return true;
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(describeError(e))));
+      if (mounted) showMessage(context, describeError(e));
+      return false;
     }
   }
 
-  Future<void> _addSubtask() async {
-    final title = _subtaskController.text.trim();
-    if (title.isEmpty) return;
-    _subtaskController.clear();
-    await _run(
-      () => ref
-          .read(taskListProvider.notifier)
-          .addSubtask(Subtask(taskId: widget.taskId, title: title)),
+  Future<void> _deleteSubtask(Subtask subtask) async {
+    final id = subtask.id;
+    if (id == null) return;
+    setState(() => _removedSubtasks.add(id));
+    final ok = await _run(
+      () => ref.read(taskListProvider.notifier).deleteSubtask(id),
     );
+    if (!ok && mounted) {
+      // Let the dismissed row leave the tree before it comes back.
+      await WidgetsBinding.instance.endOfFrame;
+      if (mounted) setState(() => _removedSubtasks.remove(id));
+    }
+  }
+
+  Future<void> _delete(Task task) async {
+    final id = task.id;
+    if (id == null) return;
+    final confirmed = await confirmDelete(context);
+    if (!confirmed || !mounted) return;
+    setState(() => _deleting = true);
+    try {
+      await ref.read(taskListProvider.notifier).deleteTask(id);
+      if (!mounted) return;
+      showMessage(context, 'Task deleted.');
+      closeScreen(context);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _deleting = false);
+      showMessage(context, describeError(e));
+    }
   }
 
   Future<void> _reschedule(Task task) async {
     final today = dateOnly(DateTime.now());
-    final initial = task.dueDate.isBefore(today) ? today : task.dueDate;
-    final picked = await showDatePicker(
+    final day = await showDatePicker(
       context: context,
-      initialDate: initial,
-      firstDate: today.isBefore(task.dueDate) ? today : dateOnly(task.dueDate),
+      initialDate: task.dueDate,
+      firstDate: task.dueDate.isBefore(today) ? dateOnly(task.dueDate) : today,
       lastDate: DateTime(2100, 12, 31),
+      helpText: 'Reschedule to',
     );
-    if (picked == null || !mounted) return;
-    final time = task.isAllDay ? null : parseTimeOfDay(task.dueTime);
-    await _run(
+    if (day == null || !mounted) return;
+
+    var time = parseTimeOfDay(task.dueTime);
+    if (!task.isAllDay) {
+      final picked = await showTimePicker(
+        context: context,
+        initialTime: time ?? const TimeOfDay(hour: 9, minute: 0),
+      );
+      if (picked == null || !mounted) return;
+      time = picked;
+    }
+
+    final ok = await _run(
       () => ref
           .read(taskListProvider.notifier)
-          .updateTask(task.copyWith(dueDate: combineDateAndTime(picked, time))),
+          .updateTask(
+            task.copyWith(
+              dueDate: combineDateAndTime(day, task.isAllDay ? null : time),
+              dueTime: task.isAllDay || time == null
+                  ? ''
+                  : formatTimeOfDay(time),
+            ),
+          ),
     );
+    if (ok && mounted) showMessage(context, 'Moved to ${dayLabel(day)}.');
   }
 
-  Future<void> _delete() async {
-    final confirmed = await confirmDeleteTask(context);
-    if (!confirmed || !mounted) return;
-    setState(() => _deleting = true);
-    final notifier = ref.read(taskListProvider.notifier);
-    final messenger = ScaffoldMessenger.of(context);
-    // Leave the screen first so it never renders a task that is gone.
-    _goBack();
-    try {
-      await notifier.deleteTask(widget.taskId);
-    } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text(describeError(e))));
-    }
+  Future<void> _addSubtask(Task task) async {
+    final title = _subtaskController.text.trim();
+    final id = task.id;
+    if (title.isEmpty || id == null) return;
+    _subtaskController.clear();
+    await _run(() => ref.read(taskListProvider.notifier).addSubtask(id, title));
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final textTheme = theme.textTheme;
-    final taskState = ref.watch(taskListProvider);
-
-    // `firstWhere` without `orElse` used to throw (red error screen) while
-    // tasks were still loading, for bad links, and right after deleting.
-    final task = taskState.taskById(widget.taskId);
+    final state = ref.watch(taskListProvider);
+    final task = state.taskById(widget.taskId);
 
     if (task == null) {
-      if (taskState.isLoading || _deleting) {
-        return Scaffold(
-          backgroundColor: colorScheme.surface,
-          body: const Center(child: CircularProgressIndicator()),
-        );
+      if (state.isLoading || _deleting) {
+        return const Scaffold(body: Center(child: CircularProgressIndicator()));
       }
       return const NotFoundScreen(
         title: 'Task not found',
-        message: 'This task no longer exists.',
+        message: 'This task no longer exists. It may have been deleted.',
       );
     }
 
-    final user = ref.watch(authProvider).value;
-    final isDone = task.isCompleted;
-    final overdue = task.isOverdue();
-    final completedSubtasks = task.subtasks.where((s) => s.isCompleted).length;
-    final totalSubtasks = task.subtasks.length;
-    final subtaskProgress = totalSubtasks > 0
-        ? completedSubtasks / totalSubtasks
-        : 0.0;
-    final subtaskPercent = (subtaskProgress * 100).round();
-
-    final dueTitle = task.isAllDay || task.dueTime.isEmpty
-        ? 'Due ${dayLabel(task.dueDate)} · All day'
-        : 'Due ${dayLabel(task.dueDate)} at ${task.dueTime}';
-    final dueSubtitle = isDone
-        ? 'Completed ${timeAgo(task.effectiveCompletedAt!)}'
-        : relativeDueLabel(task.deadline);
-
-    final createdBy = user == null || user.fullName.isEmpty
-        ? ''
-        : ' by ${user.fullName}';
-
     return Scaffold(
-      backgroundColor: colorScheme.surface,
-      appBar: AppBar(
-        backgroundColor: colorScheme.surface,
-        elevation: 0,
-        leading: IconButton(
-          tooltip: 'Back',
-          icon: Icon(Icons.arrow_back_ios_new, color: colorScheme.onSurface),
-          onPressed: _goBack,
-        ),
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF818CF8), Color(0xFF4F46E5)],
-                ),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(Icons.check, color: Colors.white, size: 18),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              'Task Details',
-              style: textTheme.headlineMedium?.copyWith(
-                color: colorScheme.onSurface,
-              ),
-            ),
-          ],
-        ),
-        centerTitle: true,
-        actions: const [
-          Padding(
-            padding: EdgeInsets.only(right: 16),
-            child: UserAvatar(),
-          ),
-        ],
-      ),
+      backgroundColor: context.colors.surface,
       body: Column(
         children: [
+          const BackHeader(title: 'Task Details'),
           Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Action Header
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      _CircleAction(
-                        tooltip: 'Edit task',
-                        icon: Icons.edit_outlined,
-                        background: colorScheme.surfaceContainerLowest,
-                        foreground: colorScheme.onSurface,
-                        bordered: true,
-                        onPressed: () =>
-                            context.push(AppRoutes.editTask(widget.taskId)),
-                      ),
-                      const SizedBox(width: 8),
-                      _CircleAction(
-                        tooltip: 'Delete task',
-                        icon: Icons.delete_outline,
-                        background: colorScheme.errorContainer,
-                        foreground: colorScheme.error,
-                        onPressed: _delete,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Priority & Category Badges
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: priorityBackground(colorScheme, task.priority),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 6,
-                              height: 6,
-                              decoration: BoxDecoration(
-                                color: priorityAccent(
-                                  colorScheme,
-                                  task.priority,
-                                ),
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              task.priority.displayName,
-                              style: textTheme.labelMedium?.copyWith(
-                                color: priorityForeground(
-                                  colorScheme,
-                                  task.priority,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (task.category.isNotEmpty)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: colorScheme.primaryFixed,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                categoryIcon(task.category),
-                                size: 14,
-                                color: colorScheme.onPrimaryFixedVariant,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                task.category,
-                                style: textTheme.labelMedium?.copyWith(
-                                  color: colorScheme.onPrimaryFixedVariant,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Due Date Banner
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: overdue
-                          ? colorScheme.errorContainer
-                          : colorScheme.tertiaryFixed.withValues(alpha: 0.45),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: overdue
-                                ? colorScheme.error
-                                : colorScheme.tertiaryFixed,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Icon(
-                            overdue ? Icons.warning_amber_rounded : Icons.schedule,
-                            color: overdue
-                                ? colorScheme.onError
-                                : colorScheme.onTertiaryFixedVariant,
-                            size: 22,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                dueTitle,
-                                style: textTheme.headlineSmall?.copyWith(
-                                  color: colorScheme.onSurface,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Row(
-                                children: [
-                                  Container(
-                                    width: 4,
-                                    height: 4,
-                                    decoration: BoxDecoration(
-                                      color: overdue
-                                          ? colorScheme.error
-                                          : colorScheme.tertiary,
-                                      shape: BoxShape.circle,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Flexible(
-                                    child: Text(
-                                      dueSubtitle,
-                                      style: textTheme.bodySmall?.copyWith(
-                                        color: overdue
-                                            ? colorScheme.onErrorContainer
-                                            : colorScheme.onSurfaceVariant,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        ActionChip(
-                          label: const Text('Reschedule'),
-                          labelStyle: textTheme.labelMedium?.copyWith(
-                            color: colorScheme.primary,
-                          ),
-                          backgroundColor: colorScheme.surfaceContainerLowest,
-                          side: BorderSide.none,
-                          shape: const StadiumBorder(),
-                          onPressed: () => _reschedule(task),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Title
-                  Text(
-                    task.title,
-                    style: textTheme.displayMedium?.copyWith(
-                      color: colorScheme.onSurface,
-                      fontWeight: FontWeight.bold,
-                      decoration: isDone ? TextDecoration.lineThrough : null,
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Description Card
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: colorScheme.surfaceContainerLow,
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.notes,
-                              size: 16,
-                              color: colorScheme.onSurfaceVariant,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'DESCRIPTION & CONTEXT',
-                              style: textTheme.labelMedium?.copyWith(
-                                color: colorScheme.onSurfaceVariant,
-                                letterSpacing: 1.2,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          task.description.isNotEmpty
-                              ? task.description
-                              : 'No description provided.',
-                          style: textTheme.bodyMedium?.copyWith(
-                            color: colorScheme.onSurface,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Subtasks Section
-                  Row(
-                    children: [
-                      Icon(Icons.checklist, color: colorScheme.primary, size: 20),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Subtasks',
-                        style: textTheme.headlineMedium?.copyWith(
-                          color: colorScheme.onSurface,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          '($completedSubtasks/$totalSubtasks completed)',
-                          overflow: TextOverflow.ellipsis,
-                          style: textTheme.bodyMedium?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ),
-                      Text(
-                        '$subtaskPercent%',
-                        style: textTheme.labelLarge?.copyWith(
-                          color: colorScheme.primary,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: LinearProgressIndicator(
-                      value: subtaskProgress,
-                      backgroundColor: colorScheme.surfaceContainerHigh,
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        colorScheme.primary,
-                      ),
-                      minHeight: 8,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Subtask Items
-                  ...task.subtasks.map(
-                    (subtask) => _buildSubtaskItem(context, subtask),
-                  ),
-
-                  // Add Subtask Row
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Container(
-                          height: 48,
-                          decoration: BoxDecoration(
-                            color: colorScheme.surfaceContainerLow,
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: TextField(
-                            controller: _subtaskController,
-                            style: textTheme.bodyMedium,
-                            textInputAction: TextInputAction.done,
-                            onSubmitted: (_) => _addSubtask(),
-                            decoration: InputDecoration(
-                              hintText: 'Add a new subtask...',
-                              hintStyle: textTheme.bodyMedium?.copyWith(
-                                color: colorScheme.outline,
-                              ),
-                              border: InputBorder.none,
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 14,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      SizedBox(
-                        height: 48,
-                        child: ElevatedButton.icon(
-                          onPressed: _addSubtask,
-                          icon: const Icon(Icons.add, size: 18),
-                          label: Text(
-                            'Add',
-                            style: textTheme.labelMedium?.copyWith(
-                              color: colorScheme.onPrimaryFixed,
-                            ),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: colorScheme.primaryFixed,
-                            foregroundColor: colorScheme.onPrimaryFixed,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            elevation: 0,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 32),
-
-                  // Activity Metadata
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: colorScheme.surfaceContainerLowest,
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Column(
-                      children: [
-                        _MetaRow(
-                          icon: Icons.account_circle,
-                          text: 'Created ${timeAgo(task.createdAt)}$createdBy',
-                        ),
-                        const SizedBox(height: 8),
-                        _MetaRow(
-                          icon: Icons.history,
-                          text: 'Last updated ${timeAgo(task.updatedAt)}',
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                ],
-              ),
-            ),
-          ),
-
-          // Bottom CTA
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: colorScheme.surface.withValues(alpha: 0.95),
-              boxShadow: [
-                BoxShadow(
-                  color: colorScheme.shadow.withValues(alpha: 0.05),
-                  offset: const Offset(0, -4),
-                  blurRadius: 16,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+              children: [
+                _ActionRow(
+                  onEdit: () => context.push(AppRoutes.editTask(task.id!)),
+                  onDelete: () => _delete(task),
                 ),
+                const SizedBox(height: 8),
+                _Badges(task: task),
+                const SizedBox(height: 12),
+                _DueBanner(task: task, onReschedule: () => _reschedule(task)),
+                const SizedBox(height: 16),
+                Text(
+                  task.title,
+                  style: context.text.displayMedium?.copyWith(height: 1.25),
+                ),
+                const SizedBox(height: 16),
+                _Notes(
+                  text: task.description,
+                  onTap: () => context.push(AppRoutes.editTask(task.id!)),
+                ),
+                const SizedBox(height: 32),
+                _Subtasks(
+                  task: task.copyWith(
+                    subtasks: [
+                      for (final s in task.subtasks)
+                        if (!_removedSubtasks.contains(s.id)) s,
+                    ],
+                  ),
+                  controller: _subtaskController,
+                  onAdd: () => _addSubtask(task),
+                  onToggle: (s) => _run(
+                    () => ref.read(taskListProvider.notifier).toggleSubtask(s),
+                  ),
+                  onDelete: _deleteSubtask,
+                ),
+                const SizedBox(height: 32),
+                _Activity(task: task),
               ],
-            ),
-            child: SafeArea(
-              top: false,
-              child: SizedBox(
-                width: double.infinity,
-                height: 56,
-                child: ElevatedButton(
-                  onPressed: () => _run(
-                    () => ref
-                        .read(taskListProvider.notifier)
-                        .toggleComplete(task),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: isDone
-                        ? colorScheme.surfaceContainerHighest
-                        : colorScheme.secondary,
-                    foregroundColor: isDone
-                        ? colorScheme.onSurface
-                        : colorScheme.onSecondary,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(28),
-                    ),
-                    elevation: isDone ? 0 : 6,
-                    shadowColor: isDone
-                        ? Colors.transparent
-                        : colorScheme.secondary.withValues(alpha: 0.35),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        isDone ? Icons.restart_alt : Icons.check_circle,
-                        size: 24,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        isDone ? 'Completed! Reopen Task' : 'Mark as Complete',
-                        style: textTheme.labelLarge?.copyWith(
-                          color: isDone
-                              ? colorScheme.onSurface
-                              : colorScheme.onSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
             ),
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildSubtaskItem(BuildContext context, Subtask subtask) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final textTheme = theme.textTheme;
-    final subtaskId = subtask.id;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Container(
-        padding: const EdgeInsets.only(left: 12, top: 4, bottom: 4),
-        decoration: BoxDecoration(
-          color: colorScheme.surfaceContainerLowest,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: colorScheme.shadow.withValues(alpha: 0.04),
-              blurRadius: 4,
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            GestureDetector(
-              onTap: subtaskId == null
-                  ? null
-                  : () => _run(
-                      () => ref
-                          .read(taskListProvider.notifier)
-                          .toggleSubtask(widget.taskId, subtaskId),
-                    ),
-              child: Container(
-                width: 24,
-                height: 24,
-                decoration: BoxDecoration(
-                  color: subtask.isCompleted
-                      ? colorScheme.secondary
-                      : colorScheme.surfaceContainerHighest,
-                  shape: BoxShape.circle,
-                ),
-                child: subtask.isCompleted
-                    ? Icon(Icons.check, color: colorScheme.onSecondary, size: 16)
-                    : null,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                subtask.title,
-                style: textTheme.bodyMedium?.copyWith(
-                  color: subtask.isCompleted
-                      ? colorScheme.outline
-                      : colorScheme.onSurface,
-                  decoration: subtask.isCompleted
-                      ? TextDecoration.lineThrough
-                      : null,
-                  decorationColor: colorScheme.outline,
-                ),
-              ),
-            ),
-            IconButton(
-              tooltip: 'Remove subtask',
-              icon: Icon(Icons.close, size: 18, color: colorScheme.outline),
-              onPressed: subtaskId == null
-                  ? null
-                  : () => _run(
-                      () => ref
-                          .read(taskListProvider.notifier)
-                          .deleteSubtask(subtaskId),
-                    ),
-            ),
-          ],
-        ),
+      bottomNavigationBar: _CompleteBar(
+        done: task.isCompleted,
+        onPressed: () => toggleTaskDone(context, ref, task),
       ),
     );
   }
 }
 
-class _CircleAction extends StatelessWidget {
-  final String tooltip;
+class _CircleButton extends StatelessWidget {
   final IconData icon;
-  final Color background;
-  final Color foreground;
-  final bool bordered;
-  final VoidCallback onPressed;
+  final String tooltip;
+  final VoidCallback onTap;
+  final bool danger;
 
-  const _CircleAction({
-    required this.tooltip,
+  const _CircleButton({
     required this.icon,
-    required this.background,
-    required this.foreground,
-    required this.onPressed,
-    this.bordered = false,
+    required this.tooltip,
+    required this.onTap,
+    this.danger = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: background,
-        shape: BoxShape.circle,
-        border: bordered ? Border.all(color: colorScheme.outlineVariant) : null,
-      ),
-      child: IconButton(
-        tooltip: tooltip,
-        icon: Icon(icon, size: 18, color: foreground),
-        onPressed: onPressed,
-        padding: EdgeInsets.zero,
+    final colors = context.colors;
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: colors.surfaceContainerLow,
+        shape: const CircleBorder(),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          splashColor: danger ? colors.errorContainer : null,
+          child: SizedBox(
+            width: 40,
+            height: 40,
+            child: Icon(
+              icon,
+              size: 20,
+              color: danger ? colors.error : colors.onSurface,
+            ),
+          ),
+        ),
       ),
     );
   }
 }
 
-class _MetaRow extends StatelessWidget {
-  final IconData icon;
-  final String text;
+class _ActionRow extends StatelessWidget {
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
 
-  const _MetaRow({required this.icon, required this.text});
+  const _ActionRow({required this.onEdit, required this.onDelete});
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
     return Row(
       children: [
-        Icon(icon, size: 16, color: colorScheme.outline),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            text,
-            style: textTheme.bodySmall?.copyWith(
-              color: colorScheme.onSurfaceVariant,
+        _CircleButton(
+          icon: Icons.arrow_back_rounded,
+          tooltip: 'Back',
+          onTap: () => closeScreen(context),
+        ),
+        const Spacer(),
+        _CircleButton(
+          icon: Icons.edit_outlined,
+          tooltip: 'Edit task',
+          onTap: onEdit,
+        ),
+        const SizedBox(width: 4),
+        _CircleButton(
+          icon: Icons.delete_outline_rounded,
+          tooltip: 'Delete task',
+          onTap: onDelete,
+          danger: true,
+        ),
+      ],
+    );
+  }
+}
+
+class _Badges extends StatelessWidget {
+  final Task task;
+
+  const _Badges({required this.task});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final label = context.text.labelMedium;
+    const padding = EdgeInsets.symmetric(horizontal: 12, vertical: 5);
+
+    final (bg, fg, dot) = switch (task.priority) {
+      TaskPriority.high => (
+        colors.errorContainer,
+        colors.onErrorContainer,
+        colors.error,
+      ),
+      TaskPriority.medium => (
+        colors.tertiaryFixed,
+        colors.onTertiaryFixed,
+        colors.tertiary,
+      ),
+      TaskPriority.low => (
+        colors.secondaryContainer,
+        colors.onSecondaryContainer,
+        colors.secondary,
+      ),
+    };
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        Pill(
+          label: '${task.priority.label} Priority',
+          background: bg,
+          foreground: fg,
+          dot: dot,
+          pulseDot: task.priority == TaskPriority.high && !task.isCompleted,
+          style: label,
+          padding: padding,
+        ),
+        if (task.category.isNotEmpty)
+          Pill(
+            label: task.category,
+            icon: categoryIcon(task.category),
+            background: colors.primaryFixed,
+            foreground: colors.onPrimaryFixed,
+            style: label,
+            padding: padding,
+          ),
+        if (task.repeat != RepeatRule.none)
+          Pill(
+            label: task.repeat.describe(task.dueDate),
+            icon: Icons.repeat_rounded,
+            background: colors.surfaceContainerHigh,
+            foreground: colors.onSurfaceVariant,
+            style: label,
+            padding: padding,
+          ),
+      ],
+    );
+  }
+}
+
+class _DueBanner extends StatelessWidget {
+  final Task task;
+  final VoidCallback onReschedule;
+
+  const _DueBanner({required this.task, required this.onReschedule});
+
+  String _title(DateTime now) {
+    final diff = daysBetween(now, task.dueDate);
+    final day = switch (diff) {
+      0 => 'Today',
+      1 => 'Tomorrow',
+      -1 => 'Yesterday',
+      _ => DateFormat('EEE, MMM d').format(task.dueDate),
+    };
+    if (task.isAllDay) return 'Due $day · All day';
+    return 'Due $day at ${shortTime(task.deadline)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final text = context.text;
+    final now = DateTime.now();
+    final done = task.isCompleted;
+    final overdue = task.isOverdue(now);
+
+    final Color tint;
+    final Color iconBg;
+    final Color iconColor;
+    final IconData icon;
+    if (done) {
+      tint = colors.secondaryContainer.withValues(alpha: 0.3);
+      iconBg = colors.secondaryContainer;
+      iconColor = colors.onSecondaryContainer;
+      icon = Icons.check_circle_outline_rounded;
+    } else if (overdue) {
+      tint = colors.errorContainer.withValues(alpha: 0.4);
+      iconBg = colors.errorContainer;
+      iconColor = colors.error;
+      icon = Icons.history_rounded;
+    } else {
+      tint = colors.tertiaryFixed.withValues(alpha: 0.3);
+      iconBg = colors.tertiaryFixed;
+      iconColor = colors.tertiary;
+      icon = Icons.schedule_rounded;
+    }
+
+    final completedAt = task.effectiveCompletedAt;
+    final subtitle = done && completedAt != null
+        ? 'Completed ${timeAgo(completedAt, now: now)}'
+        : task.isAllDay && daysBetween(now, task.dueDate) == 0
+        ? 'Any time today'
+        : relativeDueLabel(task.deadline, now: now);
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: tint,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: context.isDark ? null : AppShadows.sm,
+      ),
+      child: Row(
+        children: [
+          IconTile(
+            icon: icon,
+            background: iconBg,
+            color: iconColor,
+            size: 40,
+            radius: 12,
+            iconSize: 22,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _title(now),
+                  style: text.headlineSmall,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Row(
+                  children: [
+                    Dot(color: iconColor, size: 6),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        subtitle,
+                        style: text.bodySmall?.copyWith(
+                          color: colors.onSurfaceVariant,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          if (!done) ...[
+            const SizedBox(width: 8),
+            Pressable(
+              onTap: onReschedule,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: colors.surfaceContainerLowest,
+                  borderRadius: BorderRadius.circular(999),
+                  boxShadow: context.isDark ? null : AppShadows.sm,
+                ),
+                child: Text(
+                  'Reschedule',
+                  style: text.labelMedium?.copyWith(color: colors.primary),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _Notes extends StatelessWidget {
+  final String text;
+  final VoidCallback onTap;
+
+  const _Notes({required this.text, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final empty = text.trim().isEmpty;
+    return Material(
+      color: colors.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: empty ? onTap : null,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    Icons.notes_rounded,
+                    size: 16,
+                    color: colors.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'DESCRIPTION & CONTEXT',
+                    style: context.text.labelMedium?.copyWith(
+                      color: colors.onSurfaceVariant,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              SelectableText(
+                empty ? 'No notes yet. Tap to add some context.' : text,
+                onTap: empty ? onTap : null,
+                style: context.text.bodyMedium?.copyWith(
+                  height: 1.6,
+                  color: empty ? colors.outline : colors.onSurface,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _Subtasks extends StatelessWidget {
+  final Task task;
+  final TextEditingController controller;
+  final VoidCallback onAdd;
+  final ValueChanged<Subtask> onToggle;
+  final ValueChanged<Subtask> onDelete;
+
+  const _Subtasks({
+    required this.task,
+    required this.controller,
+    required this.onAdd,
+    required this.onToggle,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final text = context.text;
+    final total = task.subtasks.length;
+    final done = task.completedSubtasks;
+    final progress = total == 0 ? 0.0 : done / total;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.checklist_rounded, size: 20, color: colors.primary),
+            const SizedBox(width: 4),
+            Text('Subtasks', style: text.headlineMedium),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Text(
+                '($done/$total completed)',
+                style: text.labelMedium?.copyWith(
+                  color: colors.onSurfaceVariant,
+                  fontWeight: FontWeight.w500,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            Text(
+              '${(progress * 100).round()}%',
+              style: text.labelMedium?.copyWith(color: colors.primary),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: progress),
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+            builder: (context, value, _) => LinearProgressIndicator(
+              value: value,
+              minHeight: 8,
+              color: colors.primary,
+              backgroundColor: colors.surfaceContainerHigh,
             ),
           ),
         ),
+        const SizedBox(height: 12),
+        for (final subtask in task.subtasks)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Dismissible(
+              key: ValueKey('subtask-${subtask.id}'),
+              direction: DismissDirection.endToStart,
+              onDismissed: (_) => onDelete(subtask),
+              background: Container(
+                alignment: Alignment.centerRight,
+                padding: const EdgeInsets.only(right: 20),
+                decoration: BoxDecoration(
+                  color: colors.errorContainer,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(
+                  Icons.delete_outline_rounded,
+                  color: colors.onErrorContainer,
+                ),
+              ),
+              child: _SubtaskRow(
+                subtask: subtask,
+                onTap: () => onToggle(subtask),
+              ),
+            ),
+          ),
+        if (total > 0)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8, left: 4),
+            child: Text(
+              'Swipe a step to the left to remove it.',
+              style: text.labelSmall?.copyWith(color: colors.outline),
+            ),
+          ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            Expanded(
+              child: SizedBox(
+                height: 48,
+                child: TextField(
+                  controller: controller,
+                  textInputAction: TextInputAction.done,
+                  textCapitalization: TextCapitalization.sentences,
+                  onSubmitted: (_) => onAdd(),
+                  style: text.bodyMedium,
+                  decoration: InputDecoration(
+                    hintText: 'Add a new subtask...',
+                    hintStyle: text.bodyMedium?.copyWith(
+                      color: colors.onSurfaceVariant,
+                    ),
+                    fillColor: colors.surfaceContainerLow,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Pressable(
+              onTap: onAdd,
+              semanticLabel: 'Add subtask',
+              child: Container(
+                height: 48,
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                decoration: BoxDecoration(
+                  color: colors.primaryFixed,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.add_rounded,
+                      size: 18,
+                      color: colors.onPrimaryFixed,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Add',
+                      style: text.labelMedium?.copyWith(
+                        color: colors.onPrimaryFixed,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ],
+    );
+  }
+}
+
+class _SubtaskRow extends StatelessWidget {
+  final Subtask subtask;
+  final VoidCallback onTap;
+
+  const _SubtaskRow({required this.subtask, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final done = subtask.isCompleted;
+    return Container(
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: context.isDark ? null : AppShadows.sm,
+      ),
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: done
+                        ? colors.secondary
+                        : colors.surfaceContainerHighest,
+                  ),
+                  child: done
+                      ? Icon(
+                          Icons.check_rounded,
+                          size: 16,
+                          color: colors.onSecondary,
+                        )
+                      : null,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 180),
+                    opacity: done ? 0.45 : 1,
+                    child: Text(
+                      subtask.title,
+                      style: context.text.bodyMedium?.copyWith(
+                        decoration: done ? TextDecoration.lineThrough : null,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _Activity extends ConsumerWidget {
+  final Task task;
+
+  const _Activity({required this.task});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final colors = context.colors;
+    final style = context.text.bodySmall?.copyWith(
+      color: colors.onSurfaceVariant,
+    );
+    final name = ref.watch(authProvider.select((a) => a.value?.firstName));
+
+    Widget line(IconData icon, InlineSpan span) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: colors.onSurfaceVariant),
+          const SizedBox(width: 8),
+          Expanded(child: Text.rich(span, style: style)),
+        ],
+      ),
+    );
+
+    return SurfaceCard(
+      radius: 16,
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        children: [
+          line(
+            Icons.account_circle_outlined,
+            TextSpan(
+              children: [
+                TextSpan(text: 'Created ${dayAgo(task.createdAt)}'),
+                if (name != null && name.isNotEmpty) ...[
+                  const TextSpan(text: ' by '),
+                  TextSpan(
+                    text: name,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: colors.onSurface,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          line(
+            Icons.history_rounded,
+            TextSpan(text: 'Last updated ${timeAgo(task.updatedAt)}'),
+          ),
+          if (task.reminder && !task.isCompleted)
+            line(
+              Icons.notifications_none_rounded,
+              TextSpan(
+                text: task.isAllDay
+                    ? 'Reminder at 9:00 AM on the day'
+                    : task.reminderMinutes <= 0
+                    ? 'Reminder when it is due'
+                    : 'Reminder ${reminderLabel(task.reminderMinutes)}',
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CompleteBar extends StatelessWidget {
+  final bool done;
+  final VoidCallback onPressed;
+
+  const _CompleteBar({required this.done, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Container(
+      color: colors.surface.withValues(alpha: 0.94),
+      padding: EdgeInsets.fromLTRB(
+        20,
+        12,
+        20,
+        12 + MediaQuery.paddingOf(context).bottom,
+      ),
+      child: Center(
+        heightFactor: 1,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 448),
+          child: PrimaryButton(
+            label: done ? 'Completed · Reopen Task' : 'Mark as Complete',
+            icon: done ? Icons.restart_alt_rounded : Icons.check_circle_outline,
+            iconAfter: false,
+            height: 56,
+            radius: 999,
+            color: done ? colors.surfaceContainerHighest : colors.secondary,
+            foreground: done ? colors.onSurface : colors.onSecondary,
+            onPressed: onPressed,
+          ),
+        ),
+      ),
     );
   }
 }
