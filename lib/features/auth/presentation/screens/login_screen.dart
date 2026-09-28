@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../../core/error/failures.dart';
+import '../../../../core/routing/route_guard.dart';
 import '../providers/auth_provider.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -15,7 +17,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
-  bool _rememberMe = false;
+  bool _rememberMe = true;
   bool _isLoading = false;
 
   void _showNotAvailableSnackBar() {
@@ -27,37 +29,25 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _handleLogin() async {
+    FocusScope.of(context).unfocus();
     if (!_formKey.currentState!.validate()) {
       return;
     }
     setState(() => _isLoading = true);
     try {
       await ref.read(authProvider.notifier).login(
-        _emailController.text,
+        _emailController.text.trim(),
         _passwordController.text,
+        rememberSession: _rememberMe,
       );
-      if (mounted) {
-        final authState = ref.read(authProvider);
-        authState.when(
-          data: (user) {
-            context.go('/');
-          },
-          error: (e, st) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(e.toString()),
-                backgroundColor: Theme.of(context).colorScheme.error,
-              ),
-            );
-          },
-          loading: () {},
-        );
-      }
+      // No manual navigation: the router's auth redirect moves a signed-in
+      // user to /home. (The old `context.go('/')` pointed at a route that
+      // does not exist.)
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(e.toString()),
+            content: Text(describeError(e)),
             backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );
@@ -80,20 +70,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     
-    // Listen to authProvider to show errors if any.
-    ref.listen(authProvider, (previous, next) {
-      next.whenOrNull(
-        error: (e, st) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(e.toString()),
-              backgroundColor: theme.colorScheme.error,
-            ),
-          );
-        }
-      );
-    });
-
     return Scaffold(
       backgroundColor: theme.colorScheme.surface,
       body: SafeArea(
@@ -164,6 +140,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 TextFormField(
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
+                  textInputAction: TextInputAction.next,
+                  autofillHints: const [AutofillHints.email],
+                  autocorrect: false,
                   decoration: InputDecoration(
                     hintText: 'alex.morgan@example.com',
                     prefixIcon: Icon(Icons.mail_outline, color: theme.colorScheme.onSurfaceVariant),
@@ -183,7 +162,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     if (value == null || value.trim().isEmpty) {
                       return 'Please enter your email';
                     }
-                    if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(value)) {
+                    if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(value.trim())) {
                       return 'Please enter a valid email';
                     }
                     return null;
@@ -195,6 +174,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 TextFormField(
                   controller: _passwordController,
                   obscureText: _obscurePassword,
+                  textInputAction: TextInputAction.done,
+                  autofillHints: const [AutofillHints.password],
+                  onFieldSubmitted: (_) {
+                    if (!_isLoading) _handleLogin();
+                  },
                   decoration: InputDecoration(
                     hintText: 'Password',
                     prefixIcon: Icon(Icons.lock_outline, color: theme.colorScheme.onSurfaceVariant),
@@ -374,7 +358,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                     ),
                     GestureDetector(
-                      onTap: () => context.go('/signup'),
+                      onTap: () => context.go(AppRoutes.signup),
                       child: Text(
                         'Sign up',
                         style: theme.textTheme.labelLarge?.copyWith(

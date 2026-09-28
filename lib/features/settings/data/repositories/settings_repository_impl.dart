@@ -17,8 +17,12 @@ class SettingsRepositoryImpl implements SettingsRepository {
     final themeModeStr = await localDataSource.getThemeMode();
     final defaultPriorityInt = await localDataSource.getDefaultPriority();
 
-    ThemeMode themeMode = ThemeMode.values.firstWhere((e) => e.toString() == 'ThemeMode.$themeModeStr', orElse: () => ThemeMode.system);
-    TaskPriority defaultPriority = TaskPriority.values[defaultPriorityInt];
+    final themeMode = ThemeMode.values.firstWhere(
+      (mode) => mode.name == themeModeStr,
+      orElse: () => ThemeMode.system,
+    );
+    // Guard against out-of-range values (used to throw a RangeError).
+    final defaultPriority = taskPriorityFromIndex(defaultPriorityInt);
 
     return SettingsEntity(
       pushNotificationsEnabled: pushNotificationsEnabled,

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../../core/error/failures.dart';
+import '../../../../core/routing/route_guard.dart';
 import '../providers/auth_provider.dart';
 
 class SignupScreen extends ConsumerStatefulWidget {
@@ -10,8 +12,7 @@ class SignupScreen extends ConsumerStatefulWidget {
   ConsumerState<SignupScreen> createState() => _SignupScreenState();
 }
 
-class _SignupScreenState extends ConsumerState<SignupScreen>
-    with SingleTickerProviderStateMixin {
+class _SignupScreenState extends ConsumerState<SignupScreen> {
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -22,29 +23,17 @@ class _SignupScreenState extends ConsumerState<SignupScreen>
   bool _acceptTerms = false;
   bool _isLoading = false;
   
-  late AnimationController _pingController;
-
-  @override
-  void initState() {
-    super.initState();
-    _pingController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2),
-    )..repeat();
-  }
-
   @override
   void dispose() {
     _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
-    _pingController.dispose();
     super.dispose();
   }
 
   bool _validateEmail(String email) {
-    return RegExp(r"^[a-zA-Z0-9.a-zA-Z0-9.!#$%&'*+-/=?^_`{|}~]+@[a-zA-Z0-9]+\.[a-zA-Z]+").hasMatch(email);
+    return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email);
   }
 
   bool _validatePassword(String password) {
@@ -56,9 +45,10 @@ class _SignupScreenState extends ConsumerState<SignupScreen>
   }
 
   Future<void> _handleSignup() async {
+    FocusScope.of(context).unfocus();
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    
+
     if (_nameController.text.trim().isEmpty || 
         _emailController.text.trim().isEmpty || 
         _passwordController.text.trim().isEmpty ||
@@ -120,14 +110,12 @@ class _SignupScreenState extends ConsumerState<SignupScreen>
         _emailController.text.trim(),
         _passwordController.text,
       );
-      if (mounted) {
-        context.go('/');
-      }
+      // The router's auth redirect takes the new user to /home.
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(e.toString()),
+            content: Text(describeError(e)),
             backgroundColor: colorScheme.error,
           ),
         );
@@ -172,18 +160,6 @@ class _SignupScreenState extends ConsumerState<SignupScreen>
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final textTheme = theme.textTheme;
-
-    // Listen to auth error states
-    ref.listen(authProvider, (previous, next) {
-      if (next.hasError) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(next.error.toString()),
-            backgroundColor: colorScheme.error,
-          ),
-        );
-      }
-    });
 
     return Scaffold(
       backgroundColor: colorScheme.surface,
@@ -255,6 +231,9 @@ class _SignupScreenState extends ConsumerState<SignupScreen>
               // Full Name Field
               TextField(
                 controller: _nameController,
+                textCapitalization: TextCapitalization.words,
+                textInputAction: TextInputAction.next,
+                autofillHints: const [AutofillHints.name],
                 decoration: InputDecoration(
                   hintText: 'Full Name',
                   prefixIcon: Icon(Icons.person_outline, color: colorScheme.onSurfaceVariant),
@@ -277,6 +256,9 @@ class _SignupScreenState extends ConsumerState<SignupScreen>
               TextField(
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
+                textInputAction: TextInputAction.next,
+                autofillHints: const [AutofillHints.email],
+                autocorrect: false,
                 decoration: InputDecoration(
                   hintText: 'Email address',
                   prefixIcon: Icon(Icons.mail_outline, color: colorScheme.onSurfaceVariant),
@@ -554,7 +536,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen>
                     style: textTheme.bodyMedium?.copyWith(color: colorScheme.onSurfaceVariant),
                   ),
                   GestureDetector(
-                    onTap: () => context.go('/login'),
+                    onTap: () => context.go(AppRoutes.login),
                     child: Text(
                       'Sign in',
                       style: textTheme.labelLarge?.copyWith(

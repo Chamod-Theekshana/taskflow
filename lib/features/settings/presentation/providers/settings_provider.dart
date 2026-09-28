@@ -21,43 +21,34 @@ class SettingsController extends AsyncNotifier<SettingsEntity> {
   Future<SettingsEntity> build() =>
       ref.read(settingsRepositoryProvider).getSettings();
 
-  Future<void> updatePushNotificationsEnabled(bool value) async {
+  /// Applies [change] optimistically and persists it. If saving fails the
+  /// previous value is restored instead of leaving the UI out of sync.
+  Future<void> _update(
+    SettingsEntity Function(SettingsEntity current) change,
+  ) async {
     final current = state.value;
     if (current == null) return;
-    final updated = current.copyWith(pushNotificationsEnabled: value);
+    final updated = change(current);
     state = AsyncData(updated);
-    await ref.read(settingsRepositoryProvider).saveSettings(updated);
+    try {
+      await ref.read(settingsRepositoryProvider).saveSettings(updated);
+    } catch (_) {
+      if (ref.mounted) state = AsyncData(current);
+    }
   }
 
-  Future<void> updateDailyDigestEnabled(bool value) async {
-    final current = state.value;
-    if (current == null) return;
-    final updated = current.copyWith(dailyDigestEnabled: value);
-    state = AsyncData(updated);
-    await ref.read(settingsRepositoryProvider).saveSettings(updated);
-  }
+  Future<void> updatePushNotificationsEnabled(bool value) =>
+      _update((s) => s.copyWith(pushNotificationsEnabled: value));
 
-  Future<void> updateDailyDigestTime(String time) async {
-    final current = state.value;
-    if (current == null) return;
-    final updated = current.copyWith(dailyDigestTime: time);
-    state = AsyncData(updated);
-    await ref.read(settingsRepositoryProvider).saveSettings(updated);
-  }
+  Future<void> updateDailyDigestEnabled(bool value) =>
+      _update((s) => s.copyWith(dailyDigestEnabled: value));
 
-  Future<void> updateThemeMode(ThemeMode mode) async {
-    final current = state.value;
-    if (current == null) return;
-    final updated = current.copyWith(themeMode: mode);
-    state = AsyncData(updated);
-    await ref.read(settingsRepositoryProvider).saveSettings(updated);
-  }
+  Future<void> updateDailyDigestTime(String time) =>
+      _update((s) => s.copyWith(dailyDigestTime: time));
 
-  Future<void> updateDefaultPriority(TaskPriority priority) async {
-    final current = state.value;
-    if (current == null) return;
-    final updated = current.copyWith(defaultPriority: priority);
-    state = AsyncData(updated);
-    await ref.read(settingsRepositoryProvider).saveSettings(updated);
-  }
+  Future<void> updateThemeMode(ThemeMode mode) =>
+      _update((s) => s.copyWith(themeMode: mode));
+
+  Future<void> updateDefaultPriority(TaskPriority priority) =>
+      _update((s) => s.copyWith(defaultPriority: priority));
 }

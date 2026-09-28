@@ -1,6 +1,9 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+
+import '../../domain/entities/user.dart';
+import '../providers/auth_provider.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
@@ -12,6 +15,7 @@ class SplashScreen extends ConsumerStatefulWidget {
 class _SplashScreenState extends ConsumerState<SplashScreen>
     with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
+  bool _exitRequested = false;
 
   @override
   void initState() {
@@ -20,6 +24,25 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
       vsync: this,
       duration: const Duration(seconds: 2),
     )..repeat(reverse: true);
+
+    // The session may already be restored by the time this screen mounts,
+    // in which case the listener in build() never fires.
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _leaveWhenReady(ref.read(authProvider)),
+    );
+  }
+
+  /// Once the saved session is restored, ask the router to re-run its auth
+  /// redirect (splash -> login or home). The router normally does this on
+  /// its own; doing it here too guarantees the splash screen can never be
+  /// left on screen after start-up has finished.
+  void _leaveWhenReady(AsyncValue<User?> auth) {
+    if (_exitRequested || !mounted || isRestoringSession(auth)) return;
+    _exitRequested = true;
+    // A microtask, so the router is never refreshed in the middle of a build.
+    Future.microtask(() {
+      if (mounted) GoRouter.of(context).refresh();
+    });
   }
 
   @override
@@ -30,6 +53,8 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(authProvider, (_, next) => _leaveWhenReady(next));
+
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final textTheme = theme.textTheme;
@@ -37,27 +62,45 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     return Scaffold(
       backgroundColor: colorScheme.surface,
       body: Stack(
+        fit: StackFit.expand,
         children: [
-          // Background Orbs
-          Positioned(
-            top: -100,
-            left: -100,
-            child: _buildOrb(const Color(0xFF6366F1).withOpacity(0.3), 300),
-          ),
-          Positioned(
-            bottom: -50,
-            right: -100,
-            child: _buildOrb(const Color(0xFF10B981).withOpacity(0.2), 250),
-          ),
-          Positioned(
-            top: 200,
-            right: -150,
-            child: _buildOrb(const Color(0xFF818CF8).withOpacity(0.2), 350),
-          ),
-          BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 50, sigmaY: 50),
-            child: Container(
-              color: Colors.transparent,
+          // Background orbs. They used to be solid circles blurred by a
+          // full-screen BackdropFilter (sigma 50) that was re-rendered on
+          // every frame of the two endless animations below. On the Android
+          // emulator (Impeller on OpenGLES) that could stall rendering and
+          // freeze the app on this screen. Radial gradients give the same
+          // soft glow for free, and the RepaintBoundary keeps the animations
+          // from repainting the background.
+          Positioned.fill(
+            child: RepaintBoundary(
+              child: Stack(
+                children: [
+                  Positioned(
+                    top: -150,
+                    left: -150,
+                    child: _buildOrb(
+                      const Color(0xFF6366F1).withValues(alpha: 0.3),
+                      400,
+                    ),
+                  ),
+                  Positioned(
+                    bottom: -100,
+                    right: -150,
+                    child: _buildOrb(
+                      const Color(0xFF10B981).withValues(alpha: 0.2),
+                      350,
+                    ),
+                  ),
+                  Positioned(
+                    top: 150,
+                    right: -200,
+                    child: _buildOrb(
+                      const Color(0xFF818CF8).withValues(alpha: 0.2),
+                      450,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           SafeArea(
@@ -86,8 +129,10 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                               height: 8,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                color: colorScheme.secondary.withOpacity(
-                                    0.3 + (_animationController.value * 0.7)),
+                                color: colorScheme.secondary.withValues(
+                                  alpha:
+                                      0.3 + (_animationController.value * 0.7),
+                                ),
                               ),
                             );
                           },
@@ -118,7 +163,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                     borderRadius: BorderRadius.circular(24),
                     boxShadow: [
                       BoxShadow(
-                        color: colorScheme.primary.withOpacity(0.3),
+                        color: colorScheme.primary.withValues(alpha: 0.3),
                         blurRadius: 20,
                         offset: const Offset(0, 10),
                       ),
@@ -167,7 +212,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                 Column(
                   children: [
                     Text(
-                      'Welcome back',
+                      'Getting things ready…',
                       style: textTheme.labelLarge?.copyWith(
                         color: colorScheme.onSurface,
                         fontWeight: FontWeight.w600,
@@ -203,7 +248,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'TaskFlow v2.4 • Serene Focus',
+                  'TaskFlow v1.0.0 • Serene Focus',
                   style: textTheme.labelSmall?.copyWith(
                     color: colorScheme.outline,
                   ),
@@ -217,13 +262,18 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     );
   }
 
+  /// A soft glowing circle: full [color] in the middle fading to
+  /// transparent at the edge (looks like a blurred circle, without a blur).
   Widget _buildOrb(Color color, double size) {
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: color,
+        gradient: RadialGradient(
+          colors: [color, color, color.withValues(alpha: 0)],
+          stops: const [0, 0.4, 1],
+        ),
       ),
     );
   }

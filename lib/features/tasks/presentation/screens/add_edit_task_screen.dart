@@ -1,11 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
-
+import '../../../../core/error/failures.dart';
+import '../../../../core/routing/route_guard.dart';
+import '../../../../core/utils/date_time_utils.dart';
+import '../../../../shared/widgets/not_found_screen.dart';
+import '../../../../shared/widgets/user_avatar.dart';
+import '../../../settings/presentation/providers/settings_provider.dart';
+import '../../domain/entities/task.dart';
 import '../providers/task_provider.dart';
-import '../../domain/entities/task.dart';
-import '../../domain/entities/task.dart';
+import '../widgets/task_ui.dart';
+
+const int _kTitleMaxLength = 120;
 
 class AddEditTaskScreen extends ConsumerStatefulWidget {
   final int? taskId;
@@ -17,19 +26,31 @@ class AddEditTaskScreen extends ConsumerStatefulWidget {
 }
 
 class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
-  ColorScheme get colorScheme => Theme.of(context).colorScheme;
-  TextTheme get textTheme => Theme.of(context).textTheme;
+  late final TextEditingController _titleController;
+  late final TextEditingController _notesController;
 
-  late TextEditingController _titleController;
-  late TextEditingController _notesController;
-  DateTime _selectedDate = DateTime.now();
-  String _selectedTime = '02:00 PM';
+  DateTime _selectedDate = dateOnly(DateTime.now());
+  // Next full hour, so a task created late in the day is not born overdue
+  // (the old fixed 02:00 PM default was).
+  TimeOfDay _selectedTime = _defaultTime();
   TaskPriority _priority = TaskPriority.medium;
-  String _category = 'Work';
+  String _category = kTaskCategories.first.name;
   bool _isAllDay = false;
   bool _reminder = true;
-  int _dateSelection = 0; // 0=Today, 1=Tomorrow, 2=Pick
   Task? _existingTask;
+
+  bool _loadingTask = false;
+  bool _taskNotFound = false;
+  bool _saving = false;
+  String? _titleError;
+
+  bool get _isEditing => widget.taskId != null;
+
+  static TimeOfDay _defaultTime() {
+    final now = DateTime.now();
+    if (now.hour >= 23) return const TimeOfDay(hour: 23, minute: 59);
+    return TimeOfDay(hour: now.hour + 1, minute: 0);
+  }
 
   @override
   void initState() {
@@ -37,25 +58,45 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
     _titleController = TextEditingController();
     _notesController = TextEditingController();
 
-    if (widget.taskId != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        final task =
-            await ref.read(taskListProvider.notifier).getTaskById(widget.taskId!);
-        if (task != null && mounted) {
-          setState(() {
-            _existingTask = task;
-            _titleController.text = task.title;
-            _notesController.text = task.description;
-            _selectedDate = task.dueDate;
-            _selectedTime = task.dueTime;
-            _priority = task.priority;
-            _category = task.category;
-            _isAllDay = task.isAllDay;
-            _reminder = task.reminder;
-          });
-        }
-      });
+    if (_isEditing) {
+      _loadingTask = true;
+      _loadExistingTask(widget.taskId!);
+    } else {
+      // Honour the "Default Priority" preference from the profile screen
+      // (it was saved but never used).
+      final settings = ref.read(settingsControllerProvider).value;
+      if (settings != null) _priority = settings.defaultPriority;
     }
+  }
+
+  Future<void> _loadExistingTask(int id) async {
+    Task? task;
+    try {
+      task = await ref.read(taskListProvider.notifier).getTaskById(id);
+    } catch (_) {
+      task = null;
+    }
+    if (!mounted) return;
+    final Task? loaded = task;
+    setState(() {
+      _loadingTask = false;
+      if (loaded == null) {
+        _taskNotFound = true;
+        return;
+      }
+      final task = loaded;
+      _existingTask = task;
+      _titleController.text = task.title;
+      _notesController.text = task.description;
+      _selectedDate = dateOnly(task.dueDate);
+      _selectedTime =
+          parseTimeOfDay(task.dueTime) ??
+          TimeOfDay(hour: task.dueDate.hour, minute: task.dueDate.minute);
+      _priority = task.priority;
+      if (task.category.isNotEmpty) _category = task.category;
+      _isAllDay = task.isAllDay;
+      _reminder = task.reminder;
+    });
   }
 
   @override
@@ -65,43 +106,113 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
     super.dispose();
   }
 
-  void _saveTask() async {
-    if (_titleController.text.trim().isEmpty) return;
+  void _close() {
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go(AppRoutes.home);
+    }
+  }
+
+  /// 0 = Today, 1 = Tomorrow, 2 = another (picked) date.
+  int get _dateSelection {
+    final diff = daysBetween(DateTime.now(), _selectedDate);
+    if (diff == 0) return 0;
+    if (diff == 1) return 1;
+    return 2;
+  }
+
+  Future<void> _pickDate() async {
+    final today = dateOnly(DateTime.now());
+    // Editing an overdue task used to crash here: its date was before
+    // `firstDate: DateTime.now()`.
+    final firstDate = _selectedDate.isBefore(today) ? _selectedDate : today;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: firstDate,
+      lastDate: DateTime(2100, 12, 31),
+    );
+    if (picked != null && mounted) {
+      setState(() => _selectedDate = dateOnly(picked));
+    }
+  }
+
+  Future<void> _pickTime() async {
+    if (_isAllDay) return;
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _selectedTime,
+    );
+    if (picked != null && mounted) {
+      setState(() => _selectedTime = picked);
+    }
+  }
+
+  void _showComingSoon(String feature) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$feature is not available yet.')),
+    );
+  }
+
+  Future<void> _saveTask() async {
+    if (_saving) return;
+    final title = _titleController.text.trim();
+    if (title.isEmpty) {
+      setState(() => _titleError = 'Please enter a title');
+      return;
+    }
 
     final provider = ref.read(taskListProvider.notifier);
     final now = DateTime.now();
+    final dueDate = combineDateAndTime(
+      _selectedDate,
+      _isAllDay ? null : _selectedTime,
+    );
+    final dueTime = _isAllDay ? '' : formatTimeOfDay(_selectedTime);
 
-    if (widget.taskId == null) {
-      final task = Task(
-        title: _titleController.text.trim(),
-        description: _notesController.text.trim(),
-        dueDate: _selectedDate,
-        dueTime: _selectedTime,
-        priority: _priority,
-        category: _category,
-        isAllDay: _isAllDay,
-        reminder: _reminder,
-        reminderMinutes: _reminder ? 15 : 0,
-        createdAt: now,
-        updatedAt: now,
-      );
-      await provider.addTask(task);
-    } else {
-      final updated = _existingTask!.copyWith(
-        title: _titleController.text.trim(),
-        description: _notesController.text.trim(),
-        dueDate: _selectedDate,
-        dueTime: _selectedTime,
-        priority: _priority,
-        category: _category,
-        isAllDay: _isAllDay,
-        reminder: _reminder,
-        reminderMinutes: _reminder ? 15 : 0,
-        updatedAt: now,
-      );
-      await provider.updateTask(updated);
+    setState(() => _saving = true);
+    try {
+      final existing = _existingTask;
+      if (existing == null) {
+        await provider.addTask(
+          Task(
+            title: title,
+            description: _notesController.text.trim(),
+            dueDate: dueDate,
+            dueTime: dueTime,
+            priority: _priority,
+            category: _category,
+            isAllDay: _isAllDay,
+            reminder: _reminder,
+            reminderMinutes: _reminder ? 15 : 0,
+            createdAt: now,
+            updatedAt: now,
+          ),
+        );
+      } else {
+        await provider.updateTask(
+          existing.copyWith(
+            title: title,
+            description: _notesController.text.trim(),
+            dueDate: dueDate,
+            dueTime: dueTime,
+            priority: _priority,
+            category: _category,
+            isAllDay: _isAllDay,
+            reminder: _reminder,
+            reminderMinutes: _reminder ? 15 : 0,
+          ),
+        );
+      }
+      if (mounted) _close();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(describeError(e))));
     }
-    if (mounted) context.pop();
   }
 
   @override
@@ -109,244 +220,302 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final textTheme = theme.textTheme;
-    final isEditing = widget.taskId != null;
 
-    return Scaffold(
-      backgroundColor: colorScheme.surface,
-      appBar: AppBar(
+    if (_isEditing && _taskNotFound) {
+      return const NotFoundScreen(
+        title: 'Task not found',
+        message: 'This task no longer exists.',
+      );
+    }
+
+    return CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        const SingleActivator(LogicalKeyboardKey.enter, control: true):
+            _saveTask,
+        const SingleActivator(LogicalKeyboardKey.enter, meta: true): _saveTask,
+      },
+      child: Scaffold(
         backgroundColor: colorScheme.surface,
-        elevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_new, color: colorScheme.onSurface),
-          onPressed: () => context.pop(),
-        ),
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF818CF8), Color(0xFF4F46E5)],
+        appBar: AppBar(
+          backgroundColor: colorScheme.surface,
+          elevation: 0,
+          leading: IconButton(
+            tooltip: 'Back',
+            icon: Icon(Icons.arrow_back_ios_new, color: colorScheme.onSurface),
+            onPressed: _close,
+          ),
+          title: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF818CF8), Color(0xFF4F46E5)],
+                  ),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                borderRadius: BorderRadius.circular(10),
+                child: const Icon(Icons.check, color: Colors.white, size: 18),
               ),
-              child: Icon(Icons.check, color: Colors.white, size: 18),
-            ),
-            SizedBox(width: 8),
-            Text(
-              isEditing ? 'Edit Task' : 'Quick Add',
-              style: textTheme.headlineMedium?.copyWith(color: colorScheme.onSurface),
+              const SizedBox(width: 8),
+              Text(
+                _isEditing ? 'Edit Task' : 'Quick Add',
+                style: textTheme.headlineMedium?.copyWith(
+                  color: colorScheme.onSurface,
+                ),
+              ),
+            ],
+          ),
+          centerTitle: true,
+          actions: const [
+            Padding(
+              padding: EdgeInsets.only(right: 16.0),
+              child: UserAvatar(),
             ),
           ],
         ),
-        centerTitle: true,
-        actions: const [
-          Padding(
-            padding: EdgeInsets.only(right: 16.0),
-            child: CircleAvatar(
-              radius: 16,
-              backgroundImage: NetworkImage('https://i.pravatar.cc/150?img=11'),
-            ),
-          ),
-        ],
+        body: _loadingTask
+            ? const Center(child: CircularProgressIndicator())
+            : _buildForm(colorScheme, textTheme),
       ),
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Context Row
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          color: colorScheme.primary,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      SizedBox(width: 8),
-                      Text(
-                        isEditing ? 'EDITING TASK' : 'CREATING FOCUS',
-                        style: textTheme.labelSmall?.copyWith(
-                          color: colorScheme.primary,
-                          letterSpacing: 1.5,
-                        ),
-                      ),
-                    ],
-                  ),
-                  TextButton(
-                    onPressed: () => context.pop(),
-                    child: Text('Cancel',
-                        style: textTheme.bodyMedium
-                            ?.copyWith(color: colorScheme.onSurfaceVariant)),
-                  ),
-                ],
-              ),
-              SizedBox(height: 16),
+    );
+  }
 
-              // Title & Notes Card
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: colorScheme.surfaceContainerLowest,
-                  borderRadius: BorderRadius.circular(24),
-                  boxShadow: [
-                    BoxShadow(
-                      color: colorScheme.onSurface.withOpacity(0.04),
-                      blurRadius: 10,
-                      offset: const Offset(0, 2),
+  Widget _buildForm(ColorScheme colorScheme, TextTheme textTheme) {
+    return SingleChildScrollView(
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Context Row
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: colorScheme.primary,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      _isEditing ? 'EDITING TASK' : 'CREATING FOCUS',
+                      style: textTheme.labelSmall?.copyWith(
+                        color: colorScheme.primary,
+                        letterSpacing: 1.5,
+                      ),
                     ),
                   ],
                 ),
-                child: Column(
-                  children: [
-                    TextField(
-                      controller: _titleController,
-                      style: textTheme.displayMedium
-                          ?.copyWith(color: colorScheme.onSurface),
-                      decoration: InputDecoration(
-                        hintText: 'What needs to be done?',
-                        hintStyle: textTheme.displayMedium
-                            ?.copyWith(color: colorScheme.outline.withOpacity(0.4)),
-                        border: InputBorder.none,
-                      ),
+                TextButton(
+                  onPressed: _close,
+                  child: Text(
+                    'Cancel',
+                    style: textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
                     ),
-                    Row(
-                      children: [
-                        Icon(Icons.edit_note,
-                            color: colorScheme.outline, size: 20),
-                        SizedBox(width: 8),
-                        Expanded(
-                          child: TextField(
-                            controller: _notesController,
-                            maxLines: 3,
-                            minLines: 1,
-                            style: textTheme.bodyMedium
-                                ?.copyWith(color: colorScheme.onSurface),
-                            decoration: InputDecoration(
-                              hintText: 'Add notes, context, or links...',
-                              hintStyle: textTheme.bodyMedium
-                                  ?.copyWith(color: colorScheme.outline),
-                              border: InputBorder.none,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // Title & Notes Card
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: colorScheme.surfaceContainerLowest,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: colorScheme.shadow.withValues(alpha: 0.04),
+                    blurRadius: 10,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  TextField(
+                    controller: _titleController,
+                    autofocus: !_isEditing,
+                    textCapitalization: TextCapitalization.sentences,
+                    textInputAction: TextInputAction.next,
+                    inputFormatters: [
+                      LengthLimitingTextInputFormatter(_kTitleMaxLength),
+                    ],
+                    onChanged: (_) => setState(() => _titleError = null),
+                    style: textTheme.displayMedium?.copyWith(
+                      color: colorScheme.onSurface,
+                    ),
+                    decoration: InputDecoration(
+                      hintText: 'What needs to be done?',
+                      hintStyle: textTheme.displayMedium?.copyWith(
+                        color: colorScheme.outline.withValues(alpha: 0.5),
+                      ),
+                      border: InputBorder.none,
+                      errorText: _titleError,
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      Icon(Icons.edit_note, color: colorScheme.outline, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: _notesController,
+                          maxLines: 3,
+                          minLines: 1,
+                          textCapitalization: TextCapitalization.sentences,
+                          style: textTheme.bodyMedium?.copyWith(
+                            color: colorScheme.onSurface,
+                          ),
+                          decoration: InputDecoration(
+                            hintText: 'Add notes, context, or links...',
+                            hintStyle: textTheme.bodyMedium?.copyWith(
+                              color: colorScheme.outline,
                             ),
+                            border: InputBorder.none,
                           ),
                         ),
-                      ],
-                    ),
-                    SizedBox(height: 8),
-                    Divider(color: colorScheme.outlineVariant.withOpacity(0.5)),
-                    SizedBox(height: 4),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.auto_awesome,
-                                color: colorScheme.primary, size: 16),
-                            SizedBox(width: 4),
-                            Text(
-                              'Auto-detects dates, tags & priority',
-                              style: textTheme.bodySmall
-                                  ?.copyWith(color: colorScheme.outline),
-                            ),
-                          ],
-                        ),
-                        Text(
-                          '${_titleController.text.length}/120',
-                          style: textTheme.bodySmall
-                              ?.copyWith(color: colorScheme.outline),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              SizedBox(height: 24),
-
-              // When Section
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.calendar_today,
-                          color: colorScheme.onSurface, size: 18),
-                      SizedBox(width: 8),
-                      Text('When',
-                          style: textTheme.labelLarge
-                              ?.copyWith(color: colorScheme.onSurface)),
+                      ),
                     ],
                   ),
+                  const SizedBox(height: 8),
+                  Divider(
+                    color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+                  ),
+                  const SizedBox(height: 4),
                   Row(
                     children: [
-                      Text('All-day',
-                          style: textTheme.bodyMedium
-                              ?.copyWith(color: colorScheme.onSurfaceVariant)),
-                      SizedBox(width: 4),
-                      Switch(
-                        value: _isAllDay,
-                        onChanged: (val) => setState(() => _isAllDay = val),
-                        activeColor: colorScheme.primary,
+                      Icon(Icons.auto_awesome, color: colorScheme.primary, size: 16),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          'One clear action per task works best',
+                          overflow: TextOverflow.ellipsis,
+                          style: textTheme.bodySmall?.copyWith(
+                            color: colorScheme.outline,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        '${_titleController.text.length}/$_kTitleMaxLength',
+                        style: textTheme.bodySmall?.copyWith(
+                          color: colorScheme.outline,
+                        ),
                       ),
                     ],
                   ),
                 ],
               ),
-              SizedBox(height: 12),
-              Row(
-                children: [
-                  _buildDateChip('Today', Icons.calendar_today, _dateSelection == 0, () {
-                    setState(() {
-                      _dateSelection = 0;
-                      _selectedDate = DateTime.now();
-                    });
-                  }),
-                  SizedBox(width: 8),
-                  _buildDateChip('Tomorrow', Icons.wb_twilight, _dateSelection == 1, () {
-                    setState(() {
-                      _dateSelection = 1;
-                      _selectedDate = DateTime.now().add(const Duration(days: 1));
-                    });
-                  }),
-                  SizedBox(width: 8),
-                  _buildDateChip('Pick Date', Icons.calendar_month, _dateSelection == 2,
-                      () async {
-                    final picked = await showDatePicker(
-                      context: context,
-                      initialDate: _selectedDate,
-                      firstDate: DateTime.now(),
-                      lastDate: DateTime.now().add(const Duration(days: 365)),
-                    );
-                    if (picked != null) {
-                      setState(() {
-                        _dateSelection = 2;
-                        _selectedDate = picked;
-                      });
-                    }
-                  }),
-                ],
-              ),
-              SizedBox(height: 16),
+            ),
+            const SizedBox(height: 24),
 
-              // Time Row
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: colorScheme.surfaceContainerLowest,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            // When Section
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
                   children: [
-                    Row(
+                    Icon(
+                      Icons.calendar_today,
+                      color: colorScheme.onSurface,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'When',
+                      style: textTheme.labelLarge?.copyWith(
+                        color: colorScheme.onSurface,
+                      ),
+                    ),
+                  ],
+                ),
+                Row(
+                  children: [
+                    Text(
+                      'All-day',
+                      style: textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Switch(
+                      value: _isAllDay,
+                      onChanged: (val) => setState(() => _isAllDay = val),
+                      activeThumbColor: colorScheme.primary,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _buildDateChip(
+                  colorScheme,
+                  textTheme,
+                  'Today',
+                  Icons.calendar_today,
+                  _dateSelection == 0,
+                  () => setState(
+                    () => _selectedDate = dateOnly(DateTime.now()),
+                  ),
+                ),
+                _buildDateChip(
+                  colorScheme,
+                  textTheme,
+                  'Tomorrow',
+                  Icons.wb_twilight,
+                  _dateSelection == 1,
+                  () {
+                    final now = DateTime.now();
+                    setState(
+                      () => _selectedDate = DateTime(
+                        now.year,
+                        now.month,
+                        now.day + 1,
+                      ),
+                    );
+                  },
+                ),
+                _buildDateChip(
+                  colorScheme,
+                  textTheme,
+                  _dateSelection == 2
+                      ? DateFormat('EEE, MMM d').format(_selectedDate)
+                      : 'Pick Date',
+                  Icons.calendar_month,
+                  _dateSelection == 2,
+                  _pickDate,
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // Time Row
+            Opacity(
+              opacity: _isAllDay ? 0.5 : 1,
+              // Material (not a decorated Container) so the ripple is visible.
+              child: Material(
+                color: colorScheme.surfaceContainerLowest,
+                borderRadius: BorderRadius.circular(16),
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  onTap: _isAllDay ? null : _pickTime,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
                       children: [
                         Container(
                           width: 32,
@@ -355,126 +524,169 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
                             color: colorScheme.surfaceContainer,
                             shape: BoxShape.circle,
                           ),
-                          child: Icon(Icons.schedule,
-                              color: colorScheme.onSurfaceVariant, size: 18),
+                          child: Icon(
+                            Icons.schedule,
+                            color: colorScheme.onSurfaceVariant,
+                            size: 18,
+                          ),
                         ),
-                        SizedBox(width: 12),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Target Time',
-                                style: textTheme.labelMedium
-                                    ?.copyWith(color: colorScheme.onSurface)),
-                            Text('Optimal flow zone',
-                                style: textTheme.bodySmall
-                                    ?.copyWith(color: colorScheme.outline)),
-                          ],
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Target Time',
+                                style: textTheme.labelMedium?.copyWith(
+                                  color: colorScheme.onSurface,
+                                ),
+                              ),
+                              Text(
+                                _isAllDay
+                                    ? 'Turn off All-day to set a time'
+                                    : 'Tap to change',
+                                style: textTheme.bodySmall?.copyWith(
+                                  color: colorScheme.outline,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: colorScheme.surfaceContainerHigh,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                _isAllDay
+                                    ? 'All day'
+                                    : formatTimeOfDay(_selectedTime),
+                                style: textTheme.labelMedium?.copyWith(
+                                  color: colorScheme.onSurface,
+                                ),
+                              ),
+                              Icon(
+                                Icons.expand_more,
+                                color: colorScheme.onSurfaceVariant,
+                                size: 18,
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ),
-                    Container(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: colorScheme.surfaceContainerHigh.withOpacity(0.7),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Row(
-                        children: [
-                          Text(_selectedTime,
-                              style: textTheme.labelMedium
-                                  ?.copyWith(color: colorScheme.onSurface)),
-                          Icon(Icons.expand_more,
-                              color: colorScheme.onSurfaceVariant, size: 18),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              SizedBox(height: 24),
-
-              // Priority Section
-              Row(
-                children: [
-                  Icon(Icons.flag_outlined,
-                      color: colorScheme.onSurface, size: 18),
-                  SizedBox(width: 8),
-                  Text('Priority',
-                      style: textTheme.labelLarge
-                          ?.copyWith(color: colorScheme.onSurface)),
-                ],
-              ),
-              SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                      child: _buildPriorityOption(
-                          'Low', 'Casual', colorScheme.secondaryContainer,
-                          TaskPriority.low)),
-                  SizedBox(width: 8),
-                  Expanded(
-                      child: _buildPriorityOption(
-                          'Medium', 'Normal', colorScheme.tertiary,
-                          TaskPriority.medium)),
-                  SizedBox(width: 8),
-                  Expanded(
-                      child: _buildPriorityOption(
-                          'High', 'Urgent', colorScheme.error,
-                          TaskPriority.high)),
-                ],
-              ),
-              SizedBox(height: 24),
-
-              // Category Section
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.folder_outlined,
-                          color: colorScheme.onSurface, size: 18),
-                      SizedBox(width: 8),
-                      Text('Category',
-                          style: textTheme.labelLarge
-                              ?.copyWith(color: colorScheme.onSurface)),
-                    ],
                   ),
-                  Text('Manage tags',
-                      style: textTheme.bodyMedium
-                          ?.copyWith(color: colorScheme.primary)),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Priority Section
+            Row(
+              children: [
+                Icon(Icons.flag_outlined, color: colorScheme.onSurface, size: 18),
+                const SizedBox(width: 8),
+                Text(
+                  'Priority',
+                  style: textTheme.labelLarge?.copyWith(
+                    color: colorScheme.onSurface,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildPriorityOption(
+                    colorScheme,
+                    textTheme,
+                    'Casual',
+                    TaskPriority.low,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildPriorityOption(
+                    colorScheme,
+                    textTheme,
+                    'Normal',
+                    TaskPriority.medium,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildPriorityOption(
+                    colorScheme,
+                    textTheme,
+                    'Urgent',
+                    TaskPriority.high,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+
+            // Category Section
+            Row(
+              children: [
+                Icon(Icons.folder_outlined, color: colorScheme.onSurface, size: 18),
+                const SizedBox(width: 8),
+                Text(
+                  'Category',
+                  style: textTheme.labelLarge?.copyWith(
+                    color: colorScheme.onSurface,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final category in kTaskCategories)
+                  _buildCategoryTag(
+                    colorScheme,
+                    textTheme,
+                    category.name,
+                    category.icon,
+                  ),
+                // Keep a custom category from older data selectable.
+                if (!kTaskCategories.any((c) => c.name == _category))
+                  _buildCategoryTag(
+                    colorScheme,
+                    textTheme,
+                    _category,
+                    categoryIcon(_category),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 24),
+
+            // Reminder & Repeat Card
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: colorScheme.surfaceContainerLowest,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: colorScheme.shadow.withValues(alpha: 0.04),
+                    blurRadius: 6,
+                  ),
                 ],
               ),
-              SizedBox(height: 12),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    _buildCategoryTag('Work', Icons.business_center),
-                    SizedBox(width: 8),
-                    _buildCategoryTag('Personal', Icons.person),
-                    SizedBox(width: 8),
-                    _buildCategoryTag('Health', Icons.favorite),
-                    SizedBox(width: 8),
-                    _buildCategoryTag('Shopping', Icons.shopping_bag),
-                  ],
-                ),
-              ),
-              SizedBox(height: 24),
-
-              // Reminder & Repeat Card
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: colorScheme.surfaceContainerLowest,
-                  borderRadius: BorderRadius.circular(24),
-                  boxShadow: [
-                    BoxShadow(
-                      color: colorScheme.onSurface.withOpacity(0.04),
-                      blurRadius: 6,
-                    ),
-                  ],
-                ),
+              clipBehavior: Clip.antiAlias,
+              child: Material(
+                type: MaterialType.transparency,
                 child: Column(
                   children: [
                     ListTile(
@@ -485,26 +697,37 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
                           color: colorScheme.primaryFixed,
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: Icon(Icons.notifications_active,
-                            color: colorScheme.primary, size: 20),
+                        child: Icon(
+                          Icons.notifications_active,
+                          color: colorScheme.onPrimaryFixedVariant,
+                          size: 20,
+                        ),
                       ),
-                      title: Text('Remind me',
-                          style: textTheme.bodyLarge
-                              ?.copyWith(color: colorScheme.onSurface)),
-                      subtitle: Text('15 minutes before',
-                          style: textTheme.bodySmall
-                              ?.copyWith(color: colorScheme.outline)),
+                      title: Text(
+                        'Remind me',
+                        style: textTheme.bodyLarge?.copyWith(
+                          color: colorScheme.onSurface,
+                        ),
+                      ),
+                      subtitle: Text(
+                        '15 minutes before',
+                        style: textTheme.bodySmall?.copyWith(
+                          color: colorScheme.outline,
+                        ),
+                      ),
                       trailing: Switch(
                         value: _reminder,
                         onChanged: (val) => setState(() => _reminder = val),
-                        activeColor: colorScheme.primary,
+                        activeThumbColor: colorScheme.primary,
                       ),
                     ),
                     Divider(
-                        color: colorScheme.outlineVariant.withOpacity(0.5),
-                        indent: 16,
-                        endIndent: 16),
+                      color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+                      indent: 16,
+                      endIndent: 16,
+                    ),
                     ListTile(
+                      onTap: () => _showComingSoon('Repeating tasks'),
                       leading: Container(
                         width: 36,
                         height: 36,
@@ -512,101 +735,143 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
                           color: colorScheme.surfaceContainer,
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: Icon(Icons.repeat,
-                            color: colorScheme.onSurfaceVariant, size: 20),
+                        child: Icon(
+                          Icons.repeat,
+                          color: colorScheme.onSurfaceVariant,
+                          size: 20,
+                        ),
                       ),
-                      title: Text('Repeat',
-                          style: textTheme.bodyLarge
-                              ?.copyWith(color: colorScheme.onSurface)),
-                      subtitle: Text('Does not repeat',
-                          style: textTheme.bodySmall
-                              ?.copyWith(color: colorScheme.outline)),
-                      trailing: Icon(Icons.chevron_right,
-                          color: colorScheme.outline),
+                      title: Text(
+                        'Repeat',
+                        style: textTheme.bodyLarge?.copyWith(
+                          color: colorScheme.onSurface,
+                        ),
+                      ),
+                      subtitle: Text(
+                        'Does not repeat',
+                        style: textTheme.bodySmall?.copyWith(
+                          color: colorScheme.outline,
+                        ),
+                      ),
+                      trailing: Icon(
+                        Icons.chevron_right,
+                        color: colorScheme.outline,
+                      ),
                     ),
                   ],
                 ),
               ),
-              SizedBox(height: 16),
+            ),
+            const SizedBox(height: 16),
 
-              // Mindful Focus Banner
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: colorScheme.surfaceContainerHigh.withOpacity(0.4),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: colorScheme.secondaryContainer,
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Icon(Icons.spa,
-                          color: colorScheme.secondary, size: 22),
+            // Mindful Focus Banner
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: colorScheme.surfaceContainerHigh.withValues(alpha: 0.4),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: colorScheme.secondaryContainer,
+                      borderRadius: BorderRadius.circular(16),
                     ),
-                    SizedBox(width: 12),
-                    Column(
+                    child: Icon(
+                      Icons.spa,
+                      color: colorScheme.onSecondaryContainer,
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Mindful Focus',
-                            style: textTheme.labelMedium
-                                ?.copyWith(color: colorScheme.onSurface)),
-                        Text('One clear intention at a time.',
-                            style: textTheme.bodySmall
-                                ?.copyWith(color: colorScheme.onSurfaceVariant)),
+                        Text(
+                          'Mindful Focus',
+                          style: textTheme.labelMedium?.copyWith(
+                            color: colorScheme.onSurface,
+                          ),
+                        ),
+                        Text(
+                          'One clear intention at a time.',
+                          style: textTheme.bodySmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
                       ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-              SizedBox(height: 24),
+            ),
+            const SizedBox(height: 24),
 
-              // Save Button
-              SizedBox(
-                width: double.infinity,
-                height: 56,
-                child: ElevatedButton(
-                  onPressed: _saveTask,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: colorScheme.primary,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16)),
-                    elevation: 4,
-                    shadowColor: colorScheme.primary.withOpacity(0.25),
+            // Save Button
+            SizedBox(
+              width: double.infinity,
+              height: 56,
+              child: ElevatedButton(
+                onPressed: _saving ? null : _saveTask,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: colorScheme.primary,
+                  foregroundColor: colorScheme.onPrimary,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.check_circle, size: 20),
-                      SizedBox(width: 8),
-                      Text('Save Task',
-                          style: textTheme.labelLarge
-                              ?.copyWith(color: Colors.white)),
-                    ],
-                  ),
+                  elevation: 4,
+                  shadowColor: colorScheme.primary.withValues(alpha: 0.25),
                 ),
+                child: _saving
+                    ? SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: colorScheme.onPrimary,
+                        ),
+                      )
+                    : Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.check_circle, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            _isEditing ? 'Save Changes' : 'Save Task',
+                            style: textTheme.labelLarge?.copyWith(
+                              color: colorScheme.onPrimary,
+                            ),
+                          ),
+                        ],
+                      ),
               ),
-              SizedBox(height: 8),
-              Center(
-                child: Text('Press Cmd/Ctrl + Enter to fast save',
-                    style:
-                        textTheme.labelSmall?.copyWith(color: colorScheme.outline)),
+            ),
+            const SizedBox(height: 8),
+            Center(
+              child: Text(
+                'Press Cmd/Ctrl + Enter to fast save',
+                style: textTheme.labelSmall?.copyWith(color: colorScheme.outline),
               ),
-              SizedBox(height: 32),
-            ],
-          ),
+            ),
+            const SizedBox(height: 32),
+          ],
         ),
       ),
     );
   }
 
   Widget _buildDateChip(
-      String label, IconData icon, bool isSelected, VoidCallback onTap) {
+    ColorScheme colorScheme,
+    TextTheme textTheme,
+    String label,
+    IconData icon,
+    bool isSelected,
+    VoidCallback onTap,
+  ) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -622,24 +887,28 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
           boxShadow: isSelected
               ? [
                   BoxShadow(
-                      color: colorScheme.primary.withOpacity(0.2),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2))
+                    color: colorScheme.primary.withValues(alpha: 0.2),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
                 ]
               : null,
         ),
         child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon,
-                size: 16,
-                color: isSelected
-                    ? Colors.white
-                    : colorScheme.onSurfaceVariant),
-            SizedBox(width: 6),
+            Icon(
+              icon,
+              size: 16,
+              color: isSelected
+                  ? colorScheme.onPrimary
+                  : colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: 6),
             Text(
               label,
               style: textTheme.labelMedium?.copyWith(
-                color: isSelected ? Colors.white : colorScheme.onSurface,
+                color: isSelected ? colorScheme.onPrimary : colorScheme.onSurface,
               ),
             ),
           ],
@@ -649,27 +918,34 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
   }
 
   Widget _buildPriorityOption(
-      String title, String subtitle, Color color, TaskPriority value) {
+    ColorScheme colorScheme,
+    TextTheme textTheme,
+    String subtitle,
+    TaskPriority value,
+  ) {
     final isSelected = _priority == value;
+    final accent = priorityAccent(colorScheme, value);
     return GestureDetector(
       onTap: () => setState(() => _priority = value),
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
         decoration: BoxDecoration(
           color: isSelected
-              ? (value == TaskPriority.medium
-                  ? colorScheme.tertiaryFixed
-                  : colorScheme.surfaceContainerLowest)
+              ? priorityBackground(colorScheme, value)
               : colorScheme.surfaceContainerLowest,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-              color: isSelected ? color.withOpacity(0.3) : colorScheme.outlineVariant),
+            color: isSelected
+                ? accent.withValues(alpha: 0.5)
+                : colorScheme.outlineVariant,
+          ),
           boxShadow: isSelected
               ? [
                   BoxShadow(
-                      color: color.withOpacity(0.1),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2))
+                    color: accent.withValues(alpha: 0.1),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
                 ]
               : null,
         ),
@@ -681,28 +957,38 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
                 Container(
                   width: 10,
                   height: 10,
-                  decoration:
-                      BoxDecoration(color: color, shape: BoxShape.circle),
+                  decoration: BoxDecoration(
+                    color: accent,
+                    shape: BoxShape.circle,
+                  ),
                 ),
-                SizedBox(width: 4),
-                Text(
-                  title,
-                  style: textTheme.labelMedium?.copyWith(
-                    color: isSelected ? color : colorScheme.onSurface,
-                    fontWeight: FontWeight.bold,
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    value.label,
+                    overflow: TextOverflow.ellipsis,
+                    style: textTheme.labelMedium?.copyWith(
+                      color: isSelected
+                          ? priorityForeground(colorScheme, value)
+                          : colorScheme.onSurface,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
                 if (isSelected) ...[
-                  SizedBox(width: 4),
-                  Icon(Icons.check, color: color, size: 14),
+                  const SizedBox(width: 4),
+                  Icon(
+                    Icons.check,
+                    color: priorityForeground(colorScheme, value),
+                    size: 14,
+                  ),
                 ],
               ],
             ),
-            SizedBox(height: 4),
+            const SizedBox(height: 4),
             Text(
               subtitle,
-              style:
-                  textTheme.labelSmall?.copyWith(color: colorScheme.outline),
+              style: textTheme.labelSmall?.copyWith(color: colorScheme.outline),
             ),
           ],
         ),
@@ -710,8 +996,14 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
     );
   }
 
-  Widget _buildCategoryTag(String label, IconData icon) {
+  Widget _buildCategoryTag(
+    ColorScheme colorScheme,
+    TextTheme textTheme,
+    String label,
+    IconData icon,
+  ) {
     final isSelected = _category == label;
+    final selectedForeground = colorScheme.onPrimaryFixedVariant;
     return GestureDetector(
       onTap: () => setState(() => _category = label),
       child: Container(
@@ -721,27 +1013,32 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
               ? colorScheme.primaryFixed
               : colorScheme.surfaceContainerLowest,
           borderRadius: BorderRadius.circular(20),
-          border: isSelected
-              ? Border.all(color: colorScheme.primary.withOpacity(0.3))
-              : Border.all(color: colorScheme.outlineVariant),
+          border: Border.all(
+            color: isSelected
+                ? colorScheme.primary.withValues(alpha: 0.3)
+                : colorScheme.outlineVariant,
+          ),
         ),
         child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon,
-                size: 16,
-                color: isSelected
-                    ? colorScheme.primary
-                    : colorScheme.onSurfaceVariant),
-            SizedBox(width: 6),
+            Icon(
+              icon,
+              size: 16,
+              color: isSelected
+                  ? selectedForeground
+                  : colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: 6),
             Text(
               label,
               style: textTheme.labelMedium?.copyWith(
-                color: isSelected ? colorScheme.primary : colorScheme.onSurface,
+                color: isSelected ? selectedForeground : colorScheme.onSurface,
               ),
             ),
             if (isSelected) ...[
-              SizedBox(width: 4),
-              Icon(Icons.check, color: colorScheme.primary, size: 14),
+              const SizedBox(width: 4),
+              Icon(Icons.check, color: selectedForeground, size: 14),
             ],
           ],
         ),
