@@ -13,6 +13,7 @@ import '../../../../core/utils/quick_add_parser.dart';
 import '../../../../shared/widgets/app_header.dart';
 import '../../../../shared/widgets/not_found_screen.dart';
 import '../../../../shared/widgets/ui.dart';
+import '../../../../shared/widgets/user_avatar.dart';
 import '../../../settings/presentation/providers/settings_provider.dart';
 import '../../domain/entities/task.dart';
 import '../providers/task_provider.dart';
@@ -71,15 +72,7 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
     final now = DateTime.now();
     final start = widget.initialDate ?? now;
     _date = dateOnly(start);
-    // Next full hour today, so a new task isn't born overdue; 9 AM on any
-    // other day.
-    if (!isSameDate(start, now)) {
-      _time = const TimeOfDay(hour: 9, minute: 0);
-    } else if (now.hour >= 23) {
-      _time = const TimeOfDay(hour: 23, minute: 59);
-    } else {
-      _time = TimeOfDay(hour: now.hour + 1, minute: 0);
-    }
+    _time = _defaultTime(start, now);
     _priority = ref.read(settingsProvider).defaultPriority;
     _startDate = _date;
     _startTime = _time;
@@ -90,6 +83,14 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
       _loading = true;
       _load(id);
     }
+  }
+
+  /// Next full hour today, so a new task isn't born overdue; 9 AM on any
+  /// other day.
+  static TimeOfDay _defaultTime(DateTime day, DateTime now) {
+    if (!isSameDate(day, now)) return const TimeOfDay(hour: 9, minute: 0);
+    if (now.hour >= 23) return const TimeOfDay(hour: 23, minute: 59);
+    return TimeOfDay(hour: now.hour + 1, minute: 0);
   }
 
   Future<void> _load(int id) async {
@@ -107,20 +108,26 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
         _notFound = true;
         return;
       }
-      final task = loaded;
-      _existing = task;
-      _title.text = task.title;
-      _notes.text = task.description;
-      _date = dateOnly(task.dueDate);
+      _existing = loaded;
+      _title.text = loaded.title;
+      _notes.text = loaded.description;
+      _date = dateOnly(loaded.dueDate);
+      // All-day tasks have no time of their own; offer 9 AM if the user
+      // switches all-day off, rather than midnight (already past).
       _time =
-          parseTimeOfDay(task.dueTime) ??
-          TimeOfDay(hour: task.dueDate.hour, minute: task.dueDate.minute);
-      _priority = task.priority;
-      _category = task.category;
-      _allDay = task.isAllDay;
-      _reminder = task.reminder;
-      _reminderMinutes = task.reminderMinutes;
-      _repeat = task.repeat;
+          parseTimeOfDay(loaded.dueTime) ??
+          (loaded.isAllDay
+              ? const TimeOfDay(hour: 9, minute: 0)
+              : TimeOfDay(
+                  hour: loaded.dueDate.hour,
+                  minute: loaded.dueDate.minute,
+                ));
+      _priority = loaded.priority;
+      _category = loaded.category;
+      _allDay = loaded.isAllDay;
+      _reminder = loaded.reminder;
+      _reminderMinutes = loaded.reminderMinutes;
+      _repeat = loaded.repeat;
     });
   }
 
@@ -134,7 +141,7 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
   void _onTitleChanged(String value) {
     // Quick-add only reads new tasks; editing never rewrites a title.
     if (_isEditing) {
-      if (_titleError != null) setState(() => _titleError = null);
+      setState(() => _titleError = null);
       return;
     }
     final result = parseQuickAdd(
@@ -248,7 +255,12 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
     if (name == null || !mounted) return;
     await ref.read(settingsProvider.notifier).addCategory(name);
     if (!mounted) return;
-    _setByHand(_Field.category, () => _category = name);
+    // Use the stored spelling when the tag already existed.
+    final match = _allCategories().firstWhere(
+      (c) => c.toLowerCase() == name.toLowerCase(),
+      orElse: () => name,
+    );
+    _setByHand(_Field.category, () => _category = match);
   }
 
   Future<void> _save() async {
@@ -319,7 +331,7 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
       );
     }
 
-    final colors = context.colors;
+    final p = context.palette;
     final bottom = MediaQuery.paddingOf(context).bottom;
 
     return CallbackShortcuts(
@@ -328,47 +340,53 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
         const SingleActivator(LogicalKeyboardKey.enter, meta: true): _save,
       },
       child: Scaffold(
-        backgroundColor: colors.surface,
+        backgroundColor: p.canvas,
         body: Column(
           children: [
-            BackHeader(title: _isEditing ? 'Edit Task' : 'Quick Add'),
+            BackHeader(
+              title: _isEditing ? 'Edit Task' : 'New Task',
+              actions: [
+                GhostButton(
+                  label: 'Cancel',
+                  foreground: p.text.withValues(alpha: 0.7),
+                  onPressed: () => closeScreen(context),
+                ),
+                const UserAvatar(size: 34),
+              ],
+            ),
             Expanded(
               child: _loading
                   ? const Center(child: CircularProgressIndicator())
                   : ListView(
                       keyboardDismissBehavior:
                           ScrollViewKeyboardDismissBehavior.onDrag,
-                      padding: EdgeInsets.fromLTRB(20, 16, 20, 32 + bottom),
+                      padding: EdgeInsets.fromLTRB(16, 16, 16, 32 + bottom),
                       children: [
-                        _contextRow(),
-                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: _ModePill(editing: _isEditing),
+                        ),
+                        const SizedBox(height: 12),
                         _heroCard(),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 22),
                         _whenSection(),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 22),
                         _prioritySection(),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 22),
                         _categorySection(),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 22),
                         _optionsCard(),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 20),
                         const _MindfulBanner(),
-                        const SizedBox(height: 32),
+                        const SizedBox(height: 28),
                         PrimaryButton(
                           label: _isEditing ? 'Save Changes' : 'Save Task',
                           icon: Icons.check_circle_outline_rounded,
                           iconAfter: false,
                           height: 56,
+                          radius: 16,
                           loading: _saving,
                           onPressed: _save,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Press Cmd/Ctrl + Enter to fast save',
-                          textAlign: TextAlign.center,
-                          style: context.text.labelSmall?.copyWith(
-                            color: colors.outline,
-                          ),
                         ),
                       ],
                     ),
@@ -379,35 +397,8 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
     );
   }
 
-  Widget _contextRow() {
-    final colors = context.colors;
-    return Row(
-      children: [
-        PulsingDot(color: colors.primary, size: 8),
-        const SizedBox(width: 6),
-        Text(
-          _isEditing ? 'EDITING TASK' : 'CREATING FOCUS',
-          style: context.text.labelSmall?.copyWith(
-            color: colors.primary,
-            letterSpacing: 1.2,
-          ),
-        ),
-        const Spacer(),
-        TextButton(
-          onPressed: () => closeScreen(context),
-          style: TextButton.styleFrom(
-            foregroundColor: colors.onSurfaceVariant,
-            textStyle: context.text.labelMedium,
-            visualDensity: VisualDensity.compact,
-          ),
-          child: const Text('Cancel'),
-        ),
-      ],
-    );
-  }
-
   Widget _heroCard() {
-    final colors = context.colors;
+    final p = context.palette;
     final text = context.text;
     final length = _title.text.length;
     final detected = _detected;
@@ -424,9 +415,11 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
         found.add('${_priority.label} priority');
       }
     }
+    final divider = Container(height: 1, color: p.divider);
 
-    return SurfaceCard(
-      radius: 24,
+    return Panel(
+      color: p.cardMuted,
+      padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -439,11 +432,11 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
             textCapitalization: TextCapitalization.sentences,
             textInputAction: TextInputAction.next,
             onChanged: _onTitleChanged,
-            style: text.displayMedium,
+            style: text.headlineLarge,
             decoration: InputDecoration(
               hintText: 'What needs to be done?',
-              hintStyle: text.displayMedium?.copyWith(
-                color: colors.outline.withValues(alpha: 0.4),
+              hintStyle: text.headlineLarge?.copyWith(
+                color: p.text.withValues(alpha: 0.3),
               ),
               filled: false,
               counterText: '',
@@ -452,36 +445,39 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
               border: InputBorder.none,
               enabledBorder: InputBorder.none,
               focusedBorder: InputBorder.none,
+              errorBorder: InputBorder.none,
+              focusedErrorBorder: InputBorder.none,
               errorText: _titleError,
+              errorStyle: text.bodySmall?.copyWith(color: p.danger),
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
+          divider,
+          const SizedBox(height: 10),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Icon(
-                  Icons.edit_note_rounded,
-                  size: 22,
-                  color: colors.outlineVariant,
-                ),
+                padding: const EdgeInsets.only(top: 1),
+                child: Icon(Icons.notes_rounded, size: 20, color: p.warmMuted),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 10),
               Expanded(
                 child: TextField(
                   controller: _notes,
                   minLines: 3,
                   maxLines: 8,
                   textCapitalization: TextCapitalization.sentences,
-                  style: text.bodyMedium,
+                  style: text.bodyMedium?.copyWith(height: 1.6),
                   decoration: InputDecoration(
                     hintText: 'Add notes, context, or links...',
                     hintStyle: text.bodyMedium?.copyWith(
-                      color: colors.outline.withValues(alpha: 0.6),
+                      color: p.text.withValues(alpha: 0.3),
+                      height: 1.6,
                     ),
                     filled: false,
                     isCollapsed: true,
+                    contentPadding: EdgeInsets.zero,
                     border: InputBorder.none,
                     enabledBorder: InputBorder.none,
                     focusedBorder: InputBorder.none,
@@ -491,9 +487,11 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
             ],
           ),
           const SizedBox(height: 12),
+          divider,
+          const SizedBox(height: 12),
           Row(
             children: [
-              Icon(Icons.auto_awesome_rounded, size: 16, color: colors.primary),
+              Icon(Icons.auto_awesome_rounded, size: 15, color: p.accent),
               const SizedBox(width: 6),
               Expanded(
                 child: AnimatedSwitcher(
@@ -503,10 +501,12 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
                         ? 'Auto-detects dates, tags & priority'
                         : 'Detected: ${found.join(' · ')}',
                     key: ValueKey(found.join()),
-                    style: text.labelSmall?.copyWith(
+                    style: text.bodySmall?.copyWith(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
                       color: found.isEmpty
-                          ? colors.onSurfaceVariant
-                          : colors.primary,
+                          ? p.text.withValues(alpha: 0.5)
+                          : p.accentSoft,
                     ),
                     maxLines: 2,
                   ),
@@ -516,7 +516,9 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
               Text(
                 '$length/$_maxTitle',
                 style: text.labelSmall?.copyWith(
-                  color: length > 100 ? colors.error : colors.outlineVariant,
+                  color: length > 100
+                      ? p.danger
+                      : p.text.withValues(alpha: 0.4),
                 ),
               ),
             ],
@@ -527,7 +529,7 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
   }
 
   Widget _whenSection() {
-    final colors = context.colors;
+    final p = context.palette;
     final text = context.text;
     final today = dateOnly(DateTime.now());
     final diff = daysBetween(today, _date);
@@ -542,23 +544,28 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
         SectionLabel(
           icon: Icons.calendar_today_outlined,
           label: 'When',
-          trailing: Row(
-            children: [
-              Text(
-                'All-day',
-                style: text.labelMedium?.copyWith(
-                  color: colors.onSurfaceVariant,
+          trailing: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _setByHand(_Field.time, () => _allDay = !_allDay),
+            child: Row(
+              children: [
+                Text(
+                  'All-day',
+                  style: text.bodySmall?.copyWith(
+                    fontSize: 12,
+                    color: p.warmMuted,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              SoftToggle(
-                value: _allDay,
-                width: 40,
-                height: 24,
-                semanticLabel: 'All-day',
-                onChanged: (v) => _setByHand(_Field.time, () => _allDay = v),
-              ),
-            ],
+                const SizedBox(width: 10),
+                AppSwitch(
+                  value: _allDay,
+                  width: 36,
+                  height: 20,
+                  semanticLabel: 'All-day',
+                  onChanged: (v) => _setByHand(_Field.time, () => _allDay = v),
+                ),
+              ],
+            ),
           ),
         ),
         const SizedBox(height: 10),
@@ -600,31 +607,28 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
           opacity: _allDay ? 0.4 : 1,
           child: IgnorePointer(
             ignoring: _allDay,
-            child: SurfaceCard(
+            child: Panel(
+              color: p.cardMuted,
               radius: 16,
-              padding: const EdgeInsets.all(12),
-              shadow: null,
+              shadow: false,
+              padding: const EdgeInsets.all(14),
               child: Row(
                 children: [
-                  Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: colors.surfaceContainer,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      Icons.schedule_rounded,
-                      size: 18,
-                      color: colors.primary,
-                    ),
+                  const IconTile(
+                    icon: Icons.schedule_rounded,
+                    size: 34,
+                    radius: 12,
+                    iconSize: 18,
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Target Time', style: text.labelMedium),
+                        Text(
+                          'Target Time',
+                          style: text.titleSmall?.copyWith(fontSize: 13),
+                        ),
                         Text(
                           _allDay
                               ? 'Any time that day'
@@ -632,7 +636,8 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
                               ? 'This time has already passed'
                               : relativeDueLabel(due),
                           style: text.bodySmall?.copyWith(
-                            color: colors.onSurfaceVariant,
+                            fontSize: 12,
+                            color: p.warmMuted,
                           ),
                         ),
                       ],
@@ -642,21 +647,26 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
                     onTap: _pickTime,
                     semanticLabel: 'Change time',
                     child: Container(
-                      padding: const EdgeInsets.fromLTRB(12, 6, 8, 6),
+                      padding: const EdgeInsets.fromLTRB(12, 7, 8, 7),
                       decoration: BoxDecoration(
-                        color: colors.surfaceContainerHigh.withValues(
-                          alpha: 0.7,
-                        ),
-                        borderRadius: BorderRadius.circular(999),
+                        color: p.raised,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: p.border),
                       ),
                       child: Row(
                         children: [
-                          Text(formatTimeOfDay(_time), style: text.labelMedium),
+                          Text(
+                            formatTimeOfDay(_time),
+                            style: text.titleSmall?.copyWith(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
                           const SizedBox(width: 4),
                           Icon(
                             Icons.expand_more_rounded,
                             size: 18,
-                            color: colors.outline,
+                            color: p.text.withValues(alpha: 0.4),
                           ),
                         ],
                       ),
@@ -675,20 +685,20 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const SectionLabel(
-          icon: Icons.outlined_flag_rounded,
-          label: 'Priority',
-        ),
+        const SectionLabel(icon: Icons.flag_outlined, label: 'Priority'),
         const SizedBox(height: 10),
         Row(
           children: [
-            for (final p in TaskPriority.values) ...[
-              if (p != TaskPriority.low) const SizedBox(width: 8),
+            for (final priority in TaskPriority.values) ...[
+              if (priority != TaskPriority.low) const SizedBox(width: 10),
               Expanded(
                 child: _PriorityOption(
-                  priority: p,
-                  selected: _priority == p,
-                  onTap: () => _setByHand(_Field.priority, () => _priority = p),
+                  priority: priority,
+                  selected: _priority == priority,
+                  onTap: () => _setByHand(
+                    _Field.priority,
+                    () => _priority = priority,
+                  ),
                 ),
               ),
             ],
@@ -699,6 +709,7 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
   }
 
   Widget _categorySection() {
+    final p = context.palette;
     final custom = ref.watch(
       settingsProvider.select((s) => s.customCategories),
     );
@@ -716,12 +727,15 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
           label: 'Category',
           trailing: Pressable(
             onTap: () => showManageTagsSheet(context),
+            semanticLabel: 'Manage tags',
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Text(
                 'Manage tags',
-                style: context.text.labelSmall?.copyWith(
-                  color: context.colors.primary,
+                style: context.text.bodySmall?.copyWith(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: p.accentSoft,
                 ),
               ),
             ),
@@ -751,7 +765,7 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
   }
 
   Widget _optionsCard() {
-    final colors = context.colors;
+    final p = context.palette;
     final notificationsOn = ref.watch(
       settingsProvider.select((s) => s.notificationsEnabled),
     );
@@ -766,19 +780,21 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
       reminderText = reminderLabel(_reminderMinutes);
     }
 
-    return SurfaceCard(
-      radius: 24,
-      padding: const EdgeInsets.all(8),
+    return Panel(
+      color: p.cardMuted,
+      padding: const EdgeInsets.all(10),
       child: Column(
         children: [
           _OptionRow(
-            icon: Icons.notifications_active_outlined,
-            iconBackground: colors.primaryFixed,
-            iconColor: colors.primary,
+            leading: const IconTile(
+              icon: Icons.notifications_active_outlined,
+              size: 36,
+              radius: 12,
+            ),
             title: 'Remind me',
             subtitle: reminderText,
             onTap: _allDay ? null : _pickReminder,
-            trailing: SoftToggle(
+            trailing: AppSwitch(
               value: _reminder,
               width: 44,
               height: 24,
@@ -788,15 +804,55 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
           ),
           const SizedBox(height: 4),
           _OptionRow(
-            icon: Icons.repeat_rounded,
-            iconBackground: colors.surfaceContainer,
-            iconColor: colors.onSurfaceVariant,
+            leading: IconTile(
+              icon: Icons.repeat_rounded,
+              color: p.textSecondary,
+              background: p.raised,
+              border: p.border,
+              size: 36,
+              radius: 12,
+            ),
             title: 'Repeat',
             subtitle: _repeat.describe(_date),
             onTap: _pickRepeat,
             trailing: Icon(
               Icons.chevron_right_rounded,
-              color: colors.outlineVariant,
+              color: p.text.withValues(alpha: 0.3),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// "CREATING FOCUS" / "EDITING TASK" pill.
+class _ModePill extends StatelessWidget {
+  final bool editing;
+
+  const _ModePill({required this.editing});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: p.accent.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: p.accent.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          PulsingDot(color: p.accent),
+          const SizedBox(width: 8),
+          Text(
+            editing ? 'EDITING TASK' : 'CREATING FOCUS',
+            style: context.text.titleSmall?.copyWith(
+              fontSize: 11,
+              letterSpacing: 0.6,
+              color: p.accentSoft,
             ),
           ),
         ],
@@ -820,30 +876,37 @@ class _DateChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
-    final fg = selected ? colors.onPrimary : colors.onSurface;
+    final p = context.palette;
     return Pressable(
       onTap: onTap,
       semanticLabel: label,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        height: 40,
+        height: 38,
         padding: const EdgeInsets.symmetric(horizontal: 16),
         decoration: BoxDecoration(
-          color: selected ? colors.primary : colors.surfaceContainerLowest,
-          borderRadius: BorderRadius.circular(999),
-          boxShadow: selected && !context.isDark ? AppShadows.sm : null,
+          color: selected ? p.accent : p.cardMuted,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: selected ? p.accent : p.border),
+          boxShadow: null,
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
               icon,
-              size: 18,
-              color: selected ? colors.onPrimary : colors.outline,
+              size: 16,
+              color: selected ? Colors.white : p.text.withValues(alpha: 0.4),
             ),
             const SizedBox(width: 6),
-            Text(label, style: context.text.labelMedium?.copyWith(color: fg)),
+            Text(
+              label,
+              style: context.text.titleSmall?.copyWith(
+                fontSize: 12,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                color: selected ? Colors.white : p.text.withValues(alpha: 0.8),
+              ),
+            ),
           ],
         ),
       ),
@@ -864,25 +927,9 @@ class _PriorityOption extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
+    final p = context.palette;
     final text = context.text;
-    final (bg, fg, dot) = switch (priority) {
-      TaskPriority.low => (
-        colors.secondaryContainer.withValues(alpha: 0.7),
-        colors.onSecondaryContainer,
-        colors.secondary,
-      ),
-      TaskPriority.medium => (
-        colors.tertiaryFixed,
-        colors.onTertiaryFixed,
-        colors.tertiary,
-      ),
-      TaskPriority.high => (
-        colors.errorContainer,
-        colors.onErrorContainer,
-        colors.error,
-      ),
-    };
+    final dot = priorityAccent(p, priority);
 
     return Pressable(
       onTap: onTap,
@@ -891,9 +938,10 @@ class _PriorityOption extends StatelessWidget {
         duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
         decoration: BoxDecoration(
-          color: selected ? bg : colors.surfaceContainerLowest,
+          color: selected ? p.accent.withValues(alpha: 0.15) : p.cardMuted,
           borderRadius: BorderRadius.circular(16),
-          boxShadow: selected && !context.isDark ? AppShadows.sm : null,
+          border: Border.all(color: selected ? p.accent : p.border),
+          boxShadow: null,
         ),
         child: Column(
           children: [
@@ -901,31 +949,31 @@ class _PriorityOption extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 priority == TaskPriority.high
-                    ? PulsingDot(color: dot, size: 10)
-                    : Dot(color: dot, size: 10),
+                    ? PulsingDot(color: dot)
+                    : Dot(color: dot),
                 const SizedBox(width: 6),
                 Flexible(
                   child: Text(
                     priority.label,
-                    style: text.labelMedium?.copyWith(
-                      color: selected ? fg : colors.onSurface,
-                    ),
                     overflow: TextOverflow.ellipsis,
+                    style: text.titleSmall?.copyWith(
+                      fontSize: 12,
+                      fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                    ),
                   ),
                 ),
                 if (selected) ...[
                   const SizedBox(width: 4),
-                  Icon(Icons.check_rounded, size: 16, color: dot),
+                  Icon(Icons.check_rounded, size: 14, color: p.accentSoft),
                 ],
               ],
             ),
             const SizedBox(height: 4),
             Text(
               priority.mood,
-              style: text.labelSmall?.copyWith(
-                color: selected
-                    ? fg.withValues(alpha: 0.8)
-                    : colors.onSurfaceVariant,
+              style: text.bodySmall?.copyWith(
+                fontSize: 10.5,
+                color: selected ? p.accentSoft : p.warmMuted,
               ),
             ),
           ],
@@ -948,32 +996,38 @@ class _CategoryChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
-    final fg = selected ? colors.onPrimaryFixed : colors.onSurface;
+    final p = context.palette;
+    final fg = selected ? p.accentSoft : p.text.withValues(alpha: 0.8);
     return Pressable(
       onTap: onTap,
       semanticLabel: name,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        height: 36,
+        height: 34,
         padding: const EdgeInsets.symmetric(horizontal: 14),
         decoration: BoxDecoration(
-          color: selected ? colors.primaryFixed : colors.surfaceContainerLowest,
-          borderRadius: BorderRadius.circular(999),
+          color: selected ? p.accent.withValues(alpha: 0.2) : p.cardMuted,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected ? p.accent.withValues(alpha: 0.5) : p.border,
+          ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              categoryIcon(name),
-              size: 16,
-              color: categoryTint(colors, name),
-            ),
+            Icon(categoryIcon(name), size: 15, color: categoryTint(p, name)),
             const SizedBox(width: 6),
-            Text(name, style: context.text.labelMedium?.copyWith(color: fg)),
+            Text(
+              name,
+              style: context.text.titleSmall?.copyWith(
+                fontSize: 12,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                color: fg,
+              ),
+            ),
             if (selected) ...[
               const SizedBox(width: 4),
-              Icon(Icons.check_rounded, size: 14, color: fg),
+              Icon(Icons.check_rounded, size: 13, color: fg),
             ],
           ],
         ),
@@ -989,25 +1043,30 @@ class _AddTagChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
+    final p = context.palette;
     return Pressable(
       onTap: onTap,
       semanticLabel: 'Add tag',
       child: Container(
-        height: 36,
+        height: 34,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
-          color: colors.surfaceContainerHigh.withValues(alpha: 0.6),
-          borderRadius: BorderRadius.circular(999),
+          color: p.raised,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: p.border),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.add_rounded, size: 16, color: colors.primary),
+            Icon(Icons.add_rounded, size: 15, color: p.accentSoft),
             const SizedBox(width: 4),
             Text(
               'Add Tag',
-              style: context.text.labelMedium?.copyWith(color: colors.primary),
+              style: context.text.titleSmall?.copyWith(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: p.accentSoft,
+              ),
             ),
           ],
         ),
@@ -1017,18 +1076,14 @@ class _AddTagChip extends StatelessWidget {
 }
 
 class _OptionRow extends StatelessWidget {
-  final IconData icon;
-  final Color iconBackground;
-  final Color iconColor;
+  final Widget leading;
   final String title;
   final String subtitle;
   final VoidCallback? onTap;
   final Widget trailing;
 
   const _OptionRow({
-    required this.icon,
-    required this.iconBackground,
-    required this.iconColor,
+    required this.leading,
     required this.title,
     required this.subtitle,
     required this.onTap,
@@ -1037,32 +1092,28 @@ class _OptionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     return Material(
       type: MaterialType.transparency,
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(8),
+          padding: const EdgeInsets.all(10),
           child: Row(
             children: [
-              IconTile(
-                icon: icon,
-                background: iconBackground,
-                color: iconColor,
-                size: 36,
-                radius: 12,
-              ),
+              leading,
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title, style: context.text.headlineSmall),
+                    Text(title, style: context.text.titleSmall),
                     Text(
                       subtitle,
                       style: context.text.bodySmall?.copyWith(
-                        color: context.colors.onSurfaceVariant,
+                        fontSize: 12,
+                        color: p.warmMuted,
                       ),
                     ),
                   ],
@@ -1083,33 +1134,39 @@ class _MindfulBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: colors.surfaceContainerHigh.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(16),
+    final p = context.palette;
+    return Panel(
+      radius: 16,
+      shadow: false,
+      padding: const EdgeInsets.all(14),
+      borderColor: p.accent.withValues(alpha: 0.2),
+      gradient: LinearGradient(
+        colors: [p.accent.withValues(alpha: 0.1), p.cardMuted, p.cardMuted],
       ),
       child: Row(
         children: [
           IconTile(
-            icon: Icons.spa_outlined,
-            background: colors.secondaryContainer,
-            color: colors.onSecondaryContainer,
-            size: 40,
+            icon: Icons.local_fire_department_outlined,
+            background: p.accent.withValues(alpha: 0.2),
             iconSize: 22,
+            radius: 12,
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Mindful Focus', style: context.text.labelMedium),
                 Text(
-                  'One clear intention at a time.',
+                  'Mindful Focus',
+                  style: context.text.titleSmall?.copyWith(fontSize: 12),
+                ),
+                Text(
+                  'One clear intention at a time. Flow starts now.',
                   style: context.text.bodySmall?.copyWith(
-                    color: colors.onSurfaceVariant,
+                    fontSize: 12,
+                    color: p.warmMuted,
                   ),
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
               ],
@@ -1120,3 +1177,4 @@ class _MindfulBanner extends StatelessWidget {
     );
   }
 }
+

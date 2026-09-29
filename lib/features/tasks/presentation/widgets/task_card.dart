@@ -22,17 +22,23 @@ Future<void> toggleTaskDone(
   try {
     final next = await ref.read(taskListProvider.notifier).toggleComplete(task);
     if (next != null) {
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('Next one is set for ${dayLabel(next.dueDate)}.'),
-        ),
-      );
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('Next one is set for ${dayLabel(next.dueDate)}.'),
+          ),
+        );
     }
   } catch (e) {
-    messenger.showSnackBar(SnackBar(content: Text(describeError(e))));
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(describeError(e))));
   }
 }
 
+/// A task in a list: priority strip, round checkbox, title, one line of
+/// notes and badges for the due date, priority and category.
 class TaskCard extends ConsumerWidget {
   final Task task;
 
@@ -41,6 +47,7 @@ class TaskCard extends ConsumerWidget {
   Future<void> _delete(BuildContext context, WidgetRef ref) async {
     final id = task.id;
     if (id == null || !await confirmDelete(context)) return;
+    if (!context.mounted) return;
     try {
       await ref.read(taskListProvider.notifier).deleteTask(id);
       if (context.mounted) showMessage(context, 'Task deleted.');
@@ -51,21 +58,26 @@ class TaskCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final colors = context.colors;
+    final p = context.palette;
     final text = context.text;
     final done = task.isCompleted;
     final id = task.id;
+    final strip = done
+        ? p.accent.withValues(alpha: 0.4)
+        : priorityAccent(p, task.priority);
+    final glowStrip = !done && task.priority == TaskPriority.high;
 
     return AnimatedOpacity(
       duration: const Duration(milliseconds: 200),
-      opacity: done ? 0.8 : 1,
+      opacity: done ? 0.75 : 1,
       child: Container(
         decoration: BoxDecoration(
-          color: done
-              ? colors.surfaceContainerLow.withValues(alpha: 0.7)
-              : colors.surfaceContainerLowest,
+          color: done ? p.cardMuted.withValues(alpha: 0.8) : p.card,
           borderRadius: BorderRadius.circular(16),
-          boxShadow: context.isDark ? null : AppShadows.sm,
+          border: Border.all(
+            color: done ? p.border.withValues(alpha: 0.5) : p.border,
+          ),
+          boxShadow: done ? null : p.cardShadow,
         ),
         child: Material(
           type: MaterialType.transparency,
@@ -81,17 +93,16 @@ class TaskCard extends ConsumerWidget {
                   child: Container(
                     width: 4,
                     decoration: BoxDecoration(
-                      color: done
-                          ? colors.secondary
-                          : priorityAccent(colors, task.priority),
+                      color: strip,
                       borderRadius: const BorderRadius.horizontal(
                         right: Radius.circular(4),
                       ),
+                      boxShadow: null,
                     ),
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 12, 4, 16),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 8, 20),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -107,19 +118,16 @@ class TaskCard extends ConsumerWidget {
                             Row(
                               children: [
                                 Expanded(
-                                  child: Padding(
-                                    padding: const EdgeInsets.only(top: 4),
-                                    child: Text(
-                                      task.title,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: text.headlineSmall?.copyWith(
-                                        letterSpacing: -0.2,
-                                        color: done ? colors.outline : null,
-                                        decoration: done
-                                            ? TextDecoration.lineThrough
-                                            : null,
-                                      ),
+                                  child: Text(
+                                    task.title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: text.headlineSmall?.copyWith(
+                                      color: done ? p.textSecondary : p.text,
+                                      decoration: done
+                                          ? TextDecoration.lineThrough
+                                          : null,
+                                      decorationColor: p.textSecondary,
                                     ),
                                   ),
                                 ),
@@ -135,21 +143,19 @@ class TaskCard extends ConsumerWidget {
                             ),
                             if (task.description.isNotEmpty)
                               Padding(
-                                padding: const EdgeInsets.only(
-                                  top: 2,
-                                  right: 12,
-                                ),
+                                padding: const EdgeInsets.only(right: 12),
                                 child: Text(
                                   task.description,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: text.bodySmall?.copyWith(
                                     color: done
-                                        ? colors.outline
-                                        : colors.onSurfaceVariant,
+                                        ? p.textSecondary.withValues(alpha: 0.6)
+                                        : p.textSecondary,
                                     decoration: done
                                         ? TextDecoration.lineThrough
                                         : null,
+                                    decorationColor: p.textSecondary,
                                   ),
                                 ),
                               ),
@@ -162,8 +168,11 @@ class TaskCard extends ConsumerWidget {
                                   Pill(
                                     label: 'Completed',
                                     icon: Icons.done_all_rounded,
-                                    background: colors.secondaryContainer,
-                                    foreground: colors.onSecondaryContainer,
+                                    background: p.accent.withValues(
+                                      alpha: 0.15,
+                                    ),
+                                    foreground: p.accent,
+                                    border: p.accent.withValues(alpha: 0.3),
                                     style: text.labelSmall?.copyWith(
                                       fontWeight: FontWeight.w600,
                                     ),
@@ -176,10 +185,7 @@ class TaskCard extends ConsumerWidget {
                                   ),
                                 ],
                                 if (task.category.isNotEmpty)
-                                  CategoryTag(
-                                    category: task.category,
-                                    muted: done,
-                                  ),
+                                  CategoryTag(category: task.category),
                               ],
                             ),
                           ],
@@ -205,37 +211,40 @@ class _TaskMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
+    final p = context.palette;
     return SizedBox(
-      width: 36,
-      height: 32,
+      width: 32,
+      height: 28,
       child: PopupMenuButton<String>(
         tooltip: 'Task options',
         useRootNavigator: true,
         padding: EdgeInsets.zero,
-        iconSize: 20,
-        icon: Icon(Icons.more_vert_rounded, color: colors.outlineVariant),
+        iconSize: 18,
+        icon: Icon(Icons.more_vert_rounded, color: p.textSecondary),
         onSelected: (value) {
           if (value == 'edit') onEdit?.call();
           if (value == 'delete') onDelete();
         },
         itemBuilder: (context) => [
-          const PopupMenuItem(
+          PopupMenuItem(
             value: 'edit',
-            child: ListTile(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(Icons.edit_outlined),
-              title: Text('Edit'),
+            enabled: onEdit != null,
+            child: Row(
+              children: [
+                Icon(Icons.edit_outlined, size: 18, color: p.textSecondary),
+                const SizedBox(width: 12),
+                const Text('Edit'),
+              ],
             ),
           ),
           PopupMenuItem(
             value: 'delete',
-            child: ListTile(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(Icons.delete_outline_rounded, color: colors.error),
-              title: Text('Delete', style: TextStyle(color: colors.error)),
+            child: Row(
+              children: [
+                Icon(Icons.delete_outline_rounded, size: 18, color: p.danger),
+                const SizedBox(width: 12),
+                Text('Delete', style: TextStyle(color: p.danger)),
+              ],
             ),
           ),
         ],

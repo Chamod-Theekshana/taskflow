@@ -41,7 +41,7 @@ class StartupErrorApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.light,
+      theme: AppTheme.dark,
       home: Scaffold(
         body: SafeArea(
           child: Center(

@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../core/constants.dart';
 import '../../../../core/error/failures.dart';
 import '../../../../core/routing/route_guard.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../shared/widgets/app_logo.dart';
 import '../../../../shared/widgets/ui.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/auth_widgets.dart';
@@ -31,7 +33,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     super.dispose();
   }
 
-  Future<void> _signIn() async {
+  void _leave() => context.go(AppRoutes.splash);
+
+  Future<void> _logIn() async {
     FocusScope.of(context).unfocus();
     if (_busy || !_formKey.currentState!.validate()) return;
     setState(() => _busy = true);
@@ -53,140 +57,191 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
+    final p = context.palette;
     final text = context.text;
 
-    return Scaffold(
-      backgroundColor: colors.surface,
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 32, 20, 32),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 448),
-              child: AutofillGroup(
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const AuthBrand(),
-                      const SizedBox(height: 24),
-                      Text(
-                        'Welcome back',
-                        textAlign: TextAlign.center,
-                        style: text.displayMedium,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Sign in to keep your tasks organized and mindful.',
-                        textAlign: TextAlign.center,
-                        style: text.bodyMedium?.copyWith(
-                          color: colors.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: 32),
-                      AuthField(
-                        label: 'Email address',
-                        controller: _email,
-                        icon: Icons.mail_outline_rounded,
-                        hint: 'alex.morgan@example.com',
-                        keyboardType: TextInputType.emailAddress,
-                        textInputAction: TextInputAction.next,
-                        autofillHints: const [AutofillHints.email],
-                        validator: (value) {
-                          final email = value?.trim() ?? '';
-                          if (email.isEmpty) return 'Enter your email';
-                          if (!emailPattern.hasMatch(email)) {
-                            return 'That email address looks incomplete';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      AuthField(
-                        label: 'Password',
-                        controller: _password,
-                        icon: Icons.lock_outline_rounded,
-                        hint: '••••••••',
-                        obscure: _hidePassword,
-                        textInputAction: TextInputAction.done,
-                        autofillHints: const [AutofillHints.password],
-                        onSubmitted: (_) => _signIn(),
-                        validator: (value) => (value ?? '').isEmpty
-                            ? 'Enter your password'
-                            : null,
-                        suffix: IconButton(
-                          tooltip: _hidePassword
-                              ? 'Show password'
-                              : 'Hide password',
-                          onPressed: () =>
-                              setState(() => _hidePassword = !_hidePassword),
-                          icon: Icon(
-                            _hidePassword
-                                ? Icons.visibility_outlined
-                                : Icons.visibility_off_outlined,
-                            size: 20,
-                            color: colors.outline,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      Row(
-                        children: [
-                          RoundCheck(
-                            value: _rememberMe,
-                            onChanged: (v) => setState(() => _rememberMe = v),
-                          ),
-                          const SizedBox(width: 8),
-                          GestureDetector(
-                            onTap: () =>
-                                setState(() => _rememberMe = !_rememberMe),
-                            child: Text(
-                              'Remember me',
-                              style: text.labelMedium?.copyWith(
-                                color: colors.onSurfaceVariant,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _leave();
+      },
+      child: Scaffold(
+        backgroundColor: p.canvas,
+        body: Stack(
+          children: [
+            const Positioned.fill(child: AuthTopGlow()),
+            SafeArea(
+              child: Center(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 440),
+                    child: AutofillGroup(
+                      child: Form(
+                        key: _formKey,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _TopBar(onClose: _leave),
+                            const SizedBox(height: 28),
+                            Text('Welcome Back', style: text.displayMedium),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Log in to resume your focus streak and manage '
+                              'your flow.',
+                              style: text.bodyMedium?.copyWith(
+                                color: p.warm.withValues(alpha: 0.8),
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 24),
-                      PrimaryButton(
-                        label: 'Sign In',
-                        icon: Icons.arrow_forward_rounded,
-                        loading: _busy,
-                        onPressed: _signIn,
-                      ),
-                      const SizedBox(height: 32),
-                      Wrap(
-                        alignment: WrapAlignment.center,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          Text(
-                            "Don't have an account?",
-                            style: text.bodyMedium?.copyWith(
-                              color: colors.onSurfaceVariant,
+                            const SizedBox(height: 28),
+                            const FieldLabel('Email address'),
+                            AuthField(
+                              controller: _email,
+                              icon: Icons.mail_outline_rounded,
+                              hint: 'alex@designflow.io',
+                              keyboardType: TextInputType.emailAddress,
+                              textInputAction: TextInputAction.next,
+                              autofillHints: const [AutofillHints.email],
+                              validator: (value) {
+                                final email = value?.trim() ?? '';
+                                if (email.isEmpty) return 'Enter your email';
+                                if (!emailPattern.hasMatch(email)) {
+                                  return 'That email address looks incomplete';
+                                }
+                                return null;
+                              },
                             ),
-                          ),
-                          TextButton(
-                            onPressed: () => context.go(AppRoutes.signup),
-                            child: const Text('Sign up'),
-                          ),
-                        ],
+                            const SizedBox(height: 16),
+                            const FieldLabel('Password'),
+                            AuthField(
+                              controller: _password,
+                              icon: Icons.lock_outline_rounded,
+                              hint: '••••••••••••',
+                              obscure: _hidePassword,
+                              textInputAction: TextInputAction.done,
+                              autofillHints: const [AutofillHints.password],
+                              onSubmitted: (_) => _logIn(),
+                              validator: (value) => (value ?? '').isEmpty
+                                  ? 'Enter your password'
+                                  : null,
+                              suffix: IconButton(
+                                tooltip: _hidePassword
+                                    ? 'Show password'
+                                    : 'Hide password',
+                                onPressed: () => setState(
+                                  () => _hidePassword = !_hidePassword,
+                                ),
+                                icon: Icon(
+                                  _hidePassword
+                                      ? Icons.visibility_outlined
+                                      : Icons.visibility_off_outlined,
+                                  size: 20,
+                                  color: p.warmMuted,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Row(
+                              children: [
+                                AuthCheckbox(
+                                  value: _rememberMe,
+                                  semanticLabel: 'Remember me',
+                                  onChanged: (v) =>
+                                      setState(() => _rememberMe = v),
+                                ),
+                                const SizedBox(width: 10),
+                                GestureDetector(
+                                  onTap: () => setState(
+                                    () => _rememberMe = !_rememberMe,
+                                  ),
+                                  child: Text(
+                                    'Remember me',
+                                    style: text.bodySmall?.copyWith(
+                                      color: p.warm,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 24),
+                            PrimaryButton(
+                              label: 'Log In',
+                              icon: Icons.arrow_forward_rounded,
+                              loading: _busy,
+                              height: 52,
+                              textStyle: text.titleLarge,
+                              onPressed: _logIn,
+                            ),
+                            const SizedBox(height: 24),
+                            const PrivacyCard(version: kAppVersion),
+                            const SizedBox(height: 20),
+                            AuthSwitchLink(
+                              question: "Don't have an account?",
+                              action: 'Sign Up',
+                              onTap: () => context.go(AppRoutes.signup),
+                            ),
+                          ],
+                        ),
                       ),
-                      const SizedBox(height: 16),
-                      const PrivacyNote(
-                        text: 'Your tasks stay private on this device',
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
+          ],
         ),
       ),
+    );
+  }
+}
+
+/// Close button, the brand pill and a live dot.
+class _TopBar extends StatelessWidget {
+  final VoidCallback onClose;
+
+  const _TopBar({required this.onClose});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return Row(
+      children: [
+        SquareIconButton(
+          icon: Icons.close_rounded,
+          tooltip: 'Close',
+          onTap: onClose,
+        ),
+        Expanded(
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(4, 4, 12, 4),
+              decoration: BoxDecoration(
+                color: p.card,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const AppLogo(size: 28, radius: 8, glow: false),
+                  const SizedBox(width: 8),
+                  Text(
+                    'TASKFLOW',
+                    style: context.text.labelMedium?.copyWith(
+                      letterSpacing: 1.4,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 40,
+          height: 40,
+          child: Center(child: PulsingDot(color: p.accent)),
+        ),
+      ],
     );
   }
 }

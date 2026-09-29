@@ -45,15 +45,22 @@ class _TaskFilterSheetState extends ConsumerState<_TaskFilterSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final categories = ref.watch(
-      taskListProvider.select((s) => s.usedCategories),
-    );
+    final used = ref.watch(taskListProvider.select((s) => s.usedCategories));
+    final active = _category;
+    // A filter whose last task is gone must stay visible, or it could never
+    // be switched off.
+    final categories = [
+      ...used,
+      if (active != null &&
+          !used.any((c) => c.toLowerCase() == active.toLowerCase()))
+        active,
+    ];
 
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
             Text('Sort & filter', style: context.text.headlineMedium),
@@ -62,7 +69,7 @@ class _TaskFilterSheetState extends ConsumerState<_TaskFilterSheet> {
               title: 'Sort by',
               children: [
                 for (final sort in TaskSort.values)
-                  ChoicePill(
+                  FilterPill(
                     label: sort.label,
                     selected: _sort == sort,
                     onTap: () => setState(() => _sort = sort),
@@ -72,13 +79,13 @@ class _TaskFilterSheetState extends ConsumerState<_TaskFilterSheet> {
             _Group(
               title: 'Priority',
               children: [
-                ChoicePill(
+                FilterPill(
                   label: 'Any',
                   selected: _priority == null,
                   onTap: () => setState(() => _priority = null),
                 ),
                 for (final p in TaskPriority.values.reversed)
-                  ChoicePill(
+                  FilterPill(
                     label: p.label,
                     selected: _priority == p,
                     onTap: () => setState(() => _priority = p),
@@ -89,30 +96,32 @@ class _TaskFilterSheetState extends ConsumerState<_TaskFilterSheet> {
               _Group(
                 title: 'Category',
                 children: [
-                  ChoicePill(
+                  FilterPill(
                     label: 'Any',
                     selected: _category == null,
                     onTap: () => setState(() => _category = null),
                   ),
                   for (final c in categories)
-                    ChoicePill(
+                    FilterPill(
                       label: c,
                       selected: _category?.toLowerCase() == c.toLowerCase(),
                       onTap: () => setState(() => _category = c),
                     ),
                 ],
               ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
             Row(
               children: [
                 Expanded(
-                  child: TextButton(
+                  child: GhostButton(
+                    label: 'Reset',
+                    height: 52,
+                    radius: 12,
                     onPressed: () => setState(() {
                       _sort = TaskSort.dueDate;
                       _priority = null;
                       _category = null;
                     }),
-                    child: const Text('Reset'),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -145,8 +154,8 @@ class _Group extends StatelessWidget {
           Text(
             title.toUpperCase(),
             style: context.text.labelSmall?.copyWith(
-              color: context.colors.onSurfaceVariant,
-              letterSpacing: 1,
+              color: context.palette.textSecondary,
+              letterSpacing: 1.2,
             ),
           ),
           const SizedBox(height: 10),

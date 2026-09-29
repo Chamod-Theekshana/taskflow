@@ -7,80 +7,82 @@ import 'app_logo.dart';
 import 'ui.dart';
 import 'user_avatar.dart';
 
-/// Top bar of the tab screens: logo and title on the left, the user's
-/// avatar (a shortcut to the profile) on the right.
+/// Top bar of the tab screens: logo and name on the left, the user's avatar
+/// (a shortcut to the profile) on the right.
 class AppHeader extends StatelessWidget {
   final String? subtitle;
+  final Widget? action;
 
-  const AppHeader({super.key, this.subtitle});
+  const AppHeader({super.key, this.subtitle, this.action});
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     final text = context.text;
     return _HeaderBar(
       children: [
         const AppLogo(size: 36, radius: 12),
-        const SizedBox(width: 8),
-        if (subtitle == null)
-          Text(
-            'TaskFlow',
-            style: text.headlineMedium?.copyWith(fontWeight: FontWeight.w700),
-          )
-        else
-          Column(
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 'TaskFlow',
-                style: text.headlineSmall?.copyWith(
+                style: text.headlineMedium?.copyWith(
                   fontWeight: FontWeight.w700,
-                  height: 1.2,
+                  height: subtitle == null ? null : 1.15,
                 ),
               ),
-              Text(
-                subtitle!,
-                style: text.labelSmall?.copyWith(
-                  color: context.colors.onSurfaceVariant,
+              if (subtitle != null)
+                Text(
+                  subtitle!.toUpperCase(),
+                  style: text.labelSmall?.copyWith(
+                    color: p.textSecondary,
+                    fontSize: 10,
+                    letterSpacing: 1,
+                  ),
                 ),
-              ),
             ],
           ),
-        const Spacer(),
+        ),
+        if (action != null) ...[action!, const SizedBox(width: 4)],
         const ProfileButton(),
       ],
     );
   }
 }
 
-/// Top bar of pushed screens (task details, add / edit).
+/// Top bar of pushed screens (task details, add / edit): a square back
+/// button, the logo and a title, with optional actions on the right.
 class BackHeader extends StatelessWidget {
   final String title;
+  final List<Widget> actions;
 
-  const BackHeader({super.key, required this.title});
+  const BackHeader({super.key, required this.title, this.actions = const []});
 
   @override
   Widget build(BuildContext context) {
     return _HeaderBar(
       children: [
-        Transform.translate(
-          offset: const Offset(-8, 0),
-          child: IconButton(
-            tooltip: 'Back',
-            onPressed: () => closeScreen(context),
-            icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 22),
-          ),
+        SquareIconButton(
+          icon: Icons.arrow_back_ios_new_rounded,
+          tooltip: 'Back',
+          onTap: () => closeScreen(context),
         ),
-        const AppLogo(size: 28, radius: 9),
-        const SizedBox(width: 8),
+        const SizedBox(width: 12),
+        const AppLogo(size: 32, radius: 11),
+        const SizedBox(width: 10),
         Expanded(
           child: Text(
             title,
             style: context.text.headlineMedium,
             overflow: TextOverflow.ellipsis,
+            maxLines: 1,
           ),
         ),
-        const UserAvatar(size: 32),
+        for (final action in actions) ...[const SizedBox(width: 8), action],
       ],
     );
   }
@@ -107,7 +109,7 @@ class ProfileButton extends StatelessWidget {
       child: const SizedBox(
         width: 44,
         height: 44,
-        child: Center(child: UserAvatar(size: 32)),
+        child: Center(child: UserAvatar(size: 34)),
       ),
     );
   }
@@ -120,13 +122,16 @@ class _HeaderBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     final top = MediaQuery.paddingOf(context).top;
     return Container(
-      padding: EdgeInsets.fromLTRB(20, top, 16, 0),
+      padding: EdgeInsets.fromLTRB(16, top, 12, 0),
       height: top + 64,
       decoration: BoxDecoration(
-        color: context.colors.surface,
-        boxShadow: context.isDark ? null : AppShadows.header,
+        color: p.canvas,
+        border: Border(
+          bottom: BorderSide(color: p.border.withValues(alpha: 0.6)),
+        ),
       ),
       child: Row(children: children),
     );

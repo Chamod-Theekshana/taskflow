@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../../shared/widgets/ui.dart';
 import '../../../settings/presentation/providers/settings_provider.dart';
 import '../../domain/entities/task.dart';
 import 'task_ui.dart';
@@ -16,11 +17,18 @@ String reminderLabel(int minutes) {
 }
 
 Future<int?> showReminderSheet(BuildContext context, int current) {
-  return _showChoiceSheet<int>(
+  return showChoiceSheet<int>(
     context,
     title: 'Remind me',
     options: [
-      for (final m in _reminderChoices) (value: m, label: reminderLabel(m)),
+      for (final m in _reminderChoices)
+        (
+          value: m,
+          label: reminderLabel(m),
+          icon: m == 0
+              ? Icons.notifications_active_outlined
+              : Icons.notifications_none_rounded,
+        ),
     ],
     selected: current,
   );
@@ -31,114 +39,34 @@ Future<RepeatRule?> showRepeatSheet(
   RepeatRule current,
   DateTime anchor,
 ) {
-  return _showChoiceSheet<RepeatRule>(
+  return showChoiceSheet<RepeatRule>(
     context,
     title: 'Repeat',
+    subtitle: 'Finishing a repeating task schedules the next one.',
     options: [
       for (final rule in RepeatRule.values)
-        (value: rule, label: rule.describe(anchor)),
+        (
+          value: rule,
+          label: rule.describe(anchor),
+          icon: rule == RepeatRule.none
+              ? Icons.block_rounded
+              : Icons.repeat_rounded,
+        ),
     ],
     selected: current,
   );
 }
 
-Future<T?> _showChoiceSheet<T>(
-  BuildContext context, {
-  required String title,
-  required List<({T value, String label})> options,
-  required T selected,
-}) {
-  return showModalBottomSheet<T>(
-    context: context,
-    useRootNavigator: true,
-    isScrollControlled: true,
-    builder: (sheetContext) {
-      final colors = sheetContext.colors;
-      return SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                child: Text(title, style: sheetContext.text.headlineMedium),
-              ),
-              for (final option in options)
-                ListTile(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  title: Text(option.label, style: sheetContext.text.bodyLarge),
-                  trailing: option.value == selected
-                      ? Icon(Icons.check_rounded, color: colors.primary)
-                      : null,
-                  selected: option.value == selected,
-                  selectedTileColor: colors.primaryFixed.withValues(alpha: 0.5),
-                  onTap: () => Navigator.of(sheetContext).pop(option.value),
-                ),
-            ],
-          ),
-        ),
-      );
-    },
-  );
-}
-
 /// Asks for the name of a new tag. Returns null when cancelled.
 Future<String?> promptForTag(BuildContext context) {
-  return showDialog<String>(
-    context: context,
-    builder: (_) => const _NewTagDialog(),
+  return promptForText(
+    context,
+    title: 'New tag',
+    hint: 'e.g. Study, Home, Side project',
+    confirmLabel: 'Add',
+    maxLength: 24,
+    capitalization: TextCapitalization.words,
   );
-}
-
-class _NewTagDialog extends StatefulWidget {
-  const _NewTagDialog();
-
-  @override
-  State<_NewTagDialog> createState() => _NewTagDialogState();
-}
-
-class _NewTagDialogState extends State<_NewTagDialog> {
-  final _controller = TextEditingController();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    final name = _controller.text.trim();
-    if (name.isNotEmpty) Navigator.of(context).pop(name);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('New tag'),
-      content: TextField(
-        controller: _controller,
-        autofocus: true,
-        maxLength: 24,
-        textCapitalization: TextCapitalization.words,
-        textInputAction: TextInputAction.done,
-        onSubmitted: (_) => _submit(),
-        decoration: const InputDecoration(
-          hintText: 'e.g. Study, Home, Side project',
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        TextButton(onPressed: _submit, child: const Text('Add')),
-      ],
-    );
-  }
 }
 
 Future<void> showManageTagsSheet(BuildContext context) {
@@ -155,33 +83,57 @@ class _ManageTagsSheet extends ConsumerWidget {
 
   Future<void> _add(BuildContext context, WidgetRef ref) async {
     final name = await promptForTag(context);
-    if (name != null) {
-      await ref.read(settingsProvider.notifier).addCategory(name);
-    }
+    if (name == null || !context.mounted) return;
+    await ref.read(settingsProvider.notifier).addCategory(name);
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final colors = context.colors;
+    final p = context.palette;
     final text = context.text;
     final custom = ref.watch(
       settingsProvider.select((s) => s.customCategories),
     );
 
-    Widget row(String name, {VoidCallback? onDelete}) => ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-      leading: Icon(categoryIcon(name), color: categoryTint(colors, name)),
-      title: Text(name, style: text.bodyLarge),
-      trailing: onDelete == null
-          ? Text(
-              'Built in',
-              style: text.labelSmall?.copyWith(color: colors.outline),
+    Widget row(String name, {VoidCallback? onDelete}) => Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+      decoration: BoxDecoration(
+        color: p.cardMuted,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: p.border),
+      ),
+      child: Row(
+        children: [
+          IconTile(
+            icon: categoryIcon(name),
+            color: categoryTint(p, name),
+            size: 34,
+            radius: 10,
+            iconSize: 18,
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: Text(name, style: text.bodyLarge)),
+          if (onDelete == null)
+            Padding(
+              padding: const EdgeInsets.only(right: 10),
+              child: Text(
+                'BUILT IN',
+                style: text.labelSmall?.copyWith(
+                  color: p.textMuted,
+                  fontSize: 10,
+                  letterSpacing: 1,
+                ),
+              ),
             )
-          : IconButton(
+          else
+            IconButton(
               tooltip: 'Remove $name',
-              icon: Icon(Icons.close_rounded, color: colors.onSurfaceVariant),
+              icon: Icon(Icons.close_rounded, color: p.textSecondary),
               onPressed: onDelete,
             ),
+        ],
+      ),
     );
 
     return SafeArea(
@@ -191,17 +143,17 @@ class _ManageTagsSheet extends ConsumerWidget {
         ),
         child: ListView(
           shrinkWrap: true,
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+              padding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
               child: Text('Tags', style: text.headlineMedium),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+              padding: const EdgeInsets.fromLTRB(4, 0, 4, 12),
               child: Text(
                 'Removing a tag keeps it on tasks that already use it.',
-                style: text.bodySmall?.copyWith(color: colors.onSurfaceVariant),
+                style: text.bodySmall?.copyWith(color: p.textSecondary),
               ),
             ),
             for (final name in kBuiltInCategories) row(name),
@@ -214,10 +166,12 @@ class _ManageTagsSheet extends ConsumerWidget {
             const SizedBox(height: 8),
             Align(
               alignment: Alignment.centerLeft,
-              child: TextButton.icon(
+              child: GhostButton(
+                label: 'New tag',
+                icon: Icons.add_rounded,
+                foreground: p.accentSoft,
+                height: 40,
                 onPressed: () => _add(context, ref),
-                icon: const Icon(Icons.add_rounded),
-                label: const Text('New tag'),
               ),
             ),
           ],

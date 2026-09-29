@@ -7,11 +7,11 @@ import 'package:go_router/go_router.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/routing/route_guard.dart';
 import '../../core/theme/app_theme.dart';
-import '../../features/tasks/presentation/providers/calendar_day_provider.dart';
 import 'ui.dart';
 
 /// Room the tab screens leave at the bottom so their last item clears the
-/// floating dock.
+/// floating dock. (With `extendBody` the dock's height is already part of
+/// the bottom padding.)
 double dockClearance(BuildContext context) =>
     MediaQuery.paddingOf(context).bottom + 24;
 
@@ -52,8 +52,7 @@ const _tabs = [
   ),
 ];
 
-/// Frame around the five main tabs: the notched dock at the bottom and the
-/// add button on the task list and calendar.
+/// Frame around the five main tabs: the notched dock at the bottom.
 class AppShell extends ConsumerStatefulWidget {
   final String location;
   final Widget child;
@@ -87,29 +86,16 @@ class _AppShellState extends ConsumerState<AppShell> {
     if (mounted) context.push(AppRoutes.task(id));
   }
 
-  void _addTask() {
-    if (widget.location.startsWith(AppRoutes.calendar)) {
-      context.push(AppRoutes.addTaskOn(ref.read(calendarDayProvider)));
-    } else {
-      context.push(AppRoutes.addTask);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final index = _tabs.indexWhere((t) => widget.location.startsWith(t.path));
     final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
-    final showAdd =
-        widget.location.startsWith(AppRoutes.home) ||
-        widget.location.startsWith(AppRoutes.calendar);
     final bottomInset = MediaQuery.paddingOf(context).bottom;
 
     return Scaffold(
       extendBody: true,
+      backgroundColor: context.palette.canvas,
       body: widget.child,
-      floatingActionButton: showAdd && !keyboardOpen
-          ? _AddButton(onTap: _addTask)
-          : null,
       bottomNavigationBar: keyboardOpen
           ? null
           : Padding(
@@ -129,33 +115,8 @@ class _AppShellState extends ConsumerState<AppShell> {
   }
 }
 
-class _AddButton extends StatelessWidget {
-  final VoidCallback onTap;
-
-  const _AddButton({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Pressable(
-      semanticLabel: 'Add task',
-      onTap: onTap,
-      scale: 0.92,
-      child: Container(
-        width: 56,
-        height: 56,
-        decoration: const BoxDecoration(
-          color: AppColors.indigo,
-          shape: BoxShape.circle,
-          boxShadow: AppShadows.fab,
-        ),
-        child: const Icon(Icons.add_rounded, color: Colors.white, size: 28),
-      ),
-    );
-  }
-}
-
-/// The floating indigo dock. The active tab sits in a white disc that rides
-/// in a notch cut into the top edge; both slide when the tab changes.
+/// The floating dock. The active tab sits in an orange disc that rides in a
+/// notch cut into the top edge; both slide when the tab changes.
 class _Dock extends StatelessWidget {
   final int index;
   final ValueChanged<int> onSelect;
@@ -164,9 +125,12 @@ class _Dock extends StatelessWidget {
 
   static const height = 64.0;
   static const _inset = 8.0;
+  static const _disc = 48.0;
+  static const _discTop = 12.0; // shared with the painter so the notch hugs the disc
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     return SizedBox(
       height: height,
       child: LayoutBuilder(
@@ -184,7 +148,17 @@ class _Dock extends StatelessWidget {
                 clipBehavior: Clip.none,
                 children: [
                   Positioned.fill(
-                    child: CustomPaint(painter: _DockPainter(notchX)),
+                    child: CustomPaint(
+                      painter: _DockPainter(
+                        notchX: notchX,
+                        top: p.dockTop,
+                        bottom: p.dockBottom,
+                        stroke: p.border,
+                        shadow: context.isDark
+                            ? const Color(0xA6000000)
+                            : const Color(0x24000000),
+                      ),
+                    ),
                   ),
                   Positioned.fill(
                     left: _inset,
@@ -204,8 +178,8 @@ class _Dock extends StatelessWidget {
                     ),
                   ),
                   Positioned(
-                    left: notchX - 24,
-                    top: 4,
+                    left: notchX - _disc / 2,
+                    top: _discTop,
                     child: _ActiveDisc(
                       tab: _tabs[index],
                       onTap: () => onSelect(index),
@@ -239,18 +213,21 @@ class _DockIcon extends StatelessWidget {
       selected: selected,
       label: tab.label,
       excludeSemantics: true,
-      child: Pressable(
-        onTap: onTap,
-        scale: 0.9,
-        child: SizedBox(
-          height: _Dock.height,
-          child: AnimatedOpacity(
-            duration: const Duration(milliseconds: 200),
-            opacity: selected ? 0 : 1,
-            child: Icon(
-              tab.icon,
-              size: 24,
-              color: Colors.white.withValues(alpha: 0.75),
+      child: Tooltip(
+        message: tab.label,
+        child: Pressable(
+          onTap: onTap,
+          scale: 0.9,
+          child: SizedBox(
+            height: _Dock.height,
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 200),
+              opacity: selected ? 0 : 1,
+              child: Icon(
+                tab.icon,
+                size: 23,
+                color: context.palette.textSecondary,
+              ),
             ),
           ),
         ),
@@ -267,24 +244,26 @@ class _ActiveDisc extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     return ExcludeSemantics(
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          width: 48,
-          height: 48,
+          width: _Dock._disc,
+          height: _Dock._disc,
           decoration: BoxDecoration(
-            color: Colors.white,
             shape: BoxShape.circle,
+            gradient: LinearGradient(
+              begin: Alignment.bottomLeft,
+              end: Alignment.topRight,
+              colors: [p.accent, p.accentBright],
+            ),
+            border: Border.all(color: p.dockBottom, width: 2),
             boxShadow: [
               BoxShadow(
-                color: Colors.white.withValues(alpha: 0.22),
-                spreadRadius: 4,
-              ),
-              const BoxShadow(
-                color: Color(0x2E000000),
+                color: p.accent.withValues(alpha: 0),
                 blurRadius: 20,
-                offset: Offset(0, 8),
+                offset: const Offset(0, 6),
               ),
             ],
           ),
@@ -294,7 +273,7 @@ class _ActiveDisc extends StatelessWidget {
               tab.activeIcon,
               key: ValueKey(tab.path),
               size: 24,
-              color: AppColors.primary,
+              color: Colors.white,
             ),
           ),
         ),
@@ -303,36 +282,58 @@ class _ActiveDisc extends StatelessWidget {
   }
 }
 
+/// Pill-shaped dock with a notch above the active tab. The notch is a real
+/// circle arc concentric with the disc (so it hugs it), joined to the top
+/// edge by two mirrored smooth shoulders.
 class _DockPainter extends CustomPainter {
   final double notchX;
+  final Color top;
+  final Color bottom;
+  final Color stroke;
+  final Color shadow;
 
-  _DockPainter(this.notchX);
+  _DockPainter({
+    required this.notchX,
+    required this.top,
+    required this.bottom,
+    required this.stroke,
+    required this.shadow,
+  });
 
   static const _radius = 32.0;
-  static const _notchHalf = 36.0;
-  static const _notchDepth = 24.0;
+  static const _discR = _Dock._disc / 2; // 24
+  static const _cy = _Dock._discTop + _discR; // disc center y = 36
+  static const _gap = 1.0; // space between disc and notch wall
+  static const _cradle = _discR + _gap; // notch circle radius = 25
+  static const _flare = 10.0; // shoulder width from circle to top edge
 
   Path _outline(Size size) {
     final w = size.width;
     final h = size.height;
     final c = notchX;
-    final left = c - _notchHalf;
-    final right = c + _notchHalf;
-    // Near either end the notch eats into the corner, so that top corner
-    // gets smaller (as in the profile design).
+    const cr = _cradle;
+    final left = c - cr - _flare;
+    final right = c + cr + _flare;
+    // Near either end the notch eats into the rounded corner, so that top
+    // corner gets tighter.
     final topLeft = left.clamp(0.0, _radius);
     final topRight = (w - right).clamp(0.0, _radius);
-    const d = _notchDepth;
 
     return Path()
       ..moveTo(0, h / 2)
       ..lineTo(0, topLeft)
       ..arcToPoint(Offset(topLeft, 0), radius: Radius.circular(topLeft))
       ..lineTo(left, 0)
-      ..cubicTo(c - 29.5, 0, c - 24.5, d * 0.1, c - 21.5, d * 0.29)
-      ..cubicTo(c - 16.5, d * 0.6, c - 9.5, d, c, d)
-      ..cubicTo(c + 9.5, d, c + 16.5, d * 0.6, c + 21.5, d * 0.29)
-      ..cubicTo(c + 24.5, d * 0.1, c + 29.5, 0, right, 0)
+      // left shoulder: horizontal at the top edge -> vertical at the circle
+      ..cubicTo(left + _flare * 0.9, 0, c - cr, _cy * 0.4, c - cr, _cy)
+      // the cradle: circle arc around the disc (left -> bottom -> right)
+      ..arcToPoint(
+        Offset(c + cr, _cy),
+        radius: const Radius.circular(cr),
+        clockwise: false,
+      )
+      // right shoulder: exact mirror
+      ..cubicTo(c + cr, _cy * 0.4, right - _flare * 0.9, 0, right, 0)
       ..lineTo(w - topRight, 0)
       ..arcToPoint(Offset(w, topRight), radius: Radius.circular(topRight))
       ..lineTo(w, h / 2)
@@ -352,27 +353,32 @@ class _DockPainter extends CustomPainter {
     canvas.drawPath(
       path.shift(const Offset(0, 12)),
       Paint()
-        ..color = const Color(0x524648D4)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12),
+        ..color = shadow
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14),
     );
     canvas.drawPath(
       path,
-      Paint()..shader = AppColors.dockGradient.createShader(Offset.zero & size),
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [top, bottom],
+        ).createShader(Offset.zero & size),
     );
-
-    // Faint highlight along the top edge.
-    canvas.save();
-    canvas.clipRect(Rect.fromLTWH(0, 0, size.width, _notchDepth + 2));
     canvas.drawPath(
       path,
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1
-        ..color = Colors.white.withValues(alpha: 0.2),
+        ..color = stroke,
     );
-    canvas.restore();
   }
 
   @override
-  bool shouldRepaint(_DockPainter old) => old.notchX != notchX;
+  bool shouldRepaint(_DockPainter old) =>
+      old.notchX != notchX ||
+      old.top != top ||
+      old.bottom != bottom ||
+      old.stroke != stroke ||
+      old.shadow != shadow;
 }

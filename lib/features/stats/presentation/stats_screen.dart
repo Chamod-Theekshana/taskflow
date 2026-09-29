@@ -33,19 +33,19 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
         const AppHeader(),
         Expanded(
           child: ListView(
-            padding: EdgeInsets.fromLTRB(20, 16, 20, dockClearance(context)),
+            padding: EdgeInsets.fromLTRB(20, 20, 20, dockClearance(context)),
             children: [
               _PeriodPicker(
                 value: _period,
                 onChanged: (p) => setState(() => _period = p),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
               _FlowCard(report: report),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
               _WeekdayChart(report: report),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
               _AllocationCard(shares: report.categories),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
               _FocusWindowCard(
                 window: report.focusWindow,
                 completed: report.completed,
@@ -71,13 +71,13 @@ class _PeriodPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
+    final p = context.palette;
     return Container(
       padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
-        color: colors.surfaceContainerLow,
+        color: p.cardMuted,
         borderRadius: BorderRadius.circular(999),
-        boxShadow: context.isDark ? null : AppShadows.sm,
+        border: Border.all(color: p.border),
       ),
       child: Row(
         children: [
@@ -88,13 +88,11 @@ class _PeriodPicker extends StatelessWidget {
                 semanticLabel: period.label,
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
-                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  padding: const EdgeInsets.symmetric(vertical: 9),
                   decoration: BoxDecoration(
-                    color: period == value ? colors.primary : null,
+                    color: period == value ? p.accent : null,
                     borderRadius: BorderRadius.circular(999),
-                    boxShadow: period == value && !context.isDark
-                        ? AppShadows.sm
-                        : null,
+                    boxShadow: period == value ? null : null,
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -104,16 +102,17 @@ class _PeriodPicker extends StatelessWidget {
                           period.label,
                           overflow: TextOverflow.ellipsis,
                           style: context.text.labelMedium?.copyWith(
+                            fontWeight: FontWeight.w500,
                             color: period == value
-                                ? colors.onPrimary
-                                : colors.onSurfaceVariant,
+                                ? Colors.white
+                                : p.textSecondary,
                           ),
                         ),
                       ),
                       if (period == value) ...[
                         const SizedBox(width: 6),
                         Dot(
-                          color: colors.onPrimary.withValues(alpha: 0.8),
+                          color: Colors.white.withValues(alpha: 0.9),
                           size: 6,
                         ),
                       ],
@@ -135,25 +134,21 @@ class _FlowCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
+    final p = context.palette;
     final text = context.text;
     final score = report.flowScore;
-    final (statusBg, statusFg, statusDot) = switch (score) {
-      >= 60 => (
-        colors.secondaryContainer,
-        colors.onSecondaryContainer,
-        colors.secondary,
+
+    final (Color statusBg, Color statusBorder, Color statusFg) = switch (score) {
+      >= 60 => (p.successTint, p.successBorder, p.success),
+      > 0 => (
+        p.accent.withValues(alpha: 0.12),
+        p.accent.withValues(alpha: 0.3),
+        p.accent,
       ),
-      > 0 => (colors.tertiaryFixed, colors.onTertiaryFixed, colors.tertiary),
-      _ => (
-        colors.surfaceContainerHigh,
-        colors.onSurfaceVariant,
-        colors.outline,
-      ),
+      _ => (p.raised, p.border, p.textSecondary),
     };
 
-    return SurfaceCard(
-      padding: const EdgeInsets.all(20),
+    return Panel(
       child: Column(
         children: [
           Row(
@@ -166,9 +161,9 @@ class _FlowCard extends StatelessWidget {
                     Text(
                       'LIVE STATE',
                       style: text.labelSmall?.copyWith(
-                        color: colors.primary,
+                        color: p.accent,
                         fontWeight: FontWeight.w600,
-                        letterSpacing: 1,
+                        letterSpacing: 1.2,
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -180,17 +175,18 @@ class _FlowCard extends StatelessWidget {
                 label: report.flowLabel,
                 background: statusBg,
                 foreground: statusFg,
-                dot: statusDot,
+                border: statusBorder,
+                dot: statusFg,
                 pulseDot: score > 0,
                 style: text.labelSmall?.copyWith(fontWeight: FontWeight.w600),
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
-                  vertical: 4,
+                  vertical: 5,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           Tooltip(
             message:
                 'How much of what was due got done, and how much of it was '
@@ -199,8 +195,8 @@ class _FlowCard extends StatelessWidget {
               progress: score / 100,
               size: 144,
               strokeWidth: 12,
-              color: colors.primary,
-              trackColor: colors.surfaceContainerHigh,
+              color: p.accent,
+              trackColor: p.track,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -210,19 +206,18 @@ class _FlowCard extends StatelessWidget {
                         TextSpan(text: '$score'),
                         TextSpan(
                           text: '%',
-                          style: text.headlineSmall?.copyWith(
-                            color: colors.primary,
+                          style: TextStyle(
+                            fontSize: 20,
+                            color: p.accent,
                           ),
                         ),
                       ],
                     ),
-                    style: text.displayMedium,
+                    style: text.displayLarge?.copyWith(height: 1.15),
                   ),
                   Text(
                     'Flow Score',
-                    style: text.labelSmall?.copyWith(
-                      color: colors.onSurfaceVariant,
-                    ),
+                    style: text.labelSmall?.copyWith(color: p.textSecondary),
                   ),
                 ],
               ),
@@ -235,7 +230,7 @@ class _FlowCard extends StatelessWidget {
                 child: _Metric(
                   label: 'Completed',
                   icon: Icons.check_circle_outline_rounded,
-                  iconColor: colors.secondary,
+                  iconColor: p.success,
                   value: '${report.completed}',
                   unit: report.completed == 1 ? 'task' : 'tasks',
                 ),
@@ -245,7 +240,7 @@ class _FlowCard extends StatelessWidget {
                 child: _Metric(
                   label: 'On-Time',
                   icon: Icons.schedule_rounded,
-                  iconColor: colors.primary,
+                  iconColor: p.accent,
                   value: '${(report.onTimeRate * 100).round()}',
                   suffix: '%',
                   unit: 'rate',
@@ -260,7 +255,7 @@ class _FlowCard extends StatelessWidget {
                 child: _Metric(
                   label: 'Day Streak',
                   icon: Icons.local_fire_department_outlined,
-                  iconColor: colors.tertiaryContainer,
+                  iconColor: p.accent,
                   value: '${report.streak}',
                   unit: report.streak >= 3
                       ? 'days 🔥'
@@ -272,7 +267,7 @@ class _FlowCard extends StatelessWidget {
                 child: _Metric(
                   label: 'Overdue',
                   icon: Icons.history_rounded,
-                  iconColor: colors.outline,
+                  iconColor: p.textSecondary,
                   value: '${report.overdue}',
                   unit: report.overdue == 0 ? 'all clear' : 'to clear',
                 ),
@@ -304,13 +299,14 @@ class _Metric extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
+    final p = context.palette;
     final text = context.text;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: colors.surfaceContainerLow,
+        color: p.raised,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: p.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -320,9 +316,8 @@ class _Metric extends StatelessWidget {
               Expanded(
                 child: Text(
                   label,
-                  style: text.labelSmall?.copyWith(
-                    color: colors.onSurfaceVariant,
-                  ),
+                  style: text.labelSmall?.copyWith(color: p.textSecondary),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
               Icon(icon, size: 18, color: iconColor),
@@ -332,17 +327,18 @@ class _Metric extends StatelessWidget {
           Text.rich(
             TextSpan(
               children: [
-                TextSpan(text: value, style: text.headlineLarge),
+                TextSpan(
+                  text: value,
+                  style: text.displaySmall?.copyWith(height: 1.1),
+                ),
                 if (suffix != null)
                   TextSpan(
                     text: suffix,
-                    style: text.headlineSmall?.copyWith(color: colors.primary),
+                    style: text.headlineMedium?.copyWith(color: p.accent),
                   ),
                 TextSpan(
                   text: '  $unit',
-                  style: text.bodySmall?.copyWith(
-                    color: colors.onSurfaceVariant,
-                  ),
+                  style: text.bodySmall?.copyWith(color: p.textSecondary),
                 ),
               ],
             ),
@@ -364,16 +360,16 @@ class _WeekdayChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
+    final p = context.palette;
     final text = context.text;
     final values = report.byWeekday;
     final peak = values.reduce(math.max);
     final peakIndex = peak == 0 ? -1 : values.indexOf(peak);
     final trend = report.trendLabel;
     final up = report.trendIsUp;
+    final trendColor = up ? p.accent : p.peach;
 
-    return SurfaceCard(
-      padding: const EdgeInsets.all(20),
+    return Panel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -387,14 +383,13 @@ class _WeekdayChart extends StatelessWidget {
                     Text('Weekly Completion', style: text.headlineMedium),
                     Text(
                       'Tasks wrapped up by weekday',
-                      style: text.bodySmall?.copyWith(
-                        color: colors.onSurfaceVariant,
-                      ),
+                      style: text.bodySmall?.copyWith(color: p.textSecondary),
                     ),
                   ],
                 ),
               ),
-              if (trend != null)
+              if (trend != null) ...[
+                const SizedBox(width: 8),
                 Flexible(
                   child: Pill(
                     label: trend,
@@ -402,31 +397,31 @@ class _WeekdayChart extends StatelessWidget {
                         ? Icons.trending_up_rounded
                         : Icons.trending_down_rounded,
                     iconSize: 16,
-                    background: up
-                        ? colors.secondaryContainer.withValues(alpha: 0.4)
-                        : colors.tertiaryFixed.withValues(alpha: 0.6),
-                    foreground: up ? colors.secondary : colors.tertiary,
-                    style: text.labelMedium,
+                    background: trendColor.withValues(alpha: 0.1),
+                    foreground: trendColor,
+                    border: trendColor.withValues(alpha: 0.2),
+                    style: text.labelMedium?.copyWith(
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
+              ],
             ],
           ),
           const SizedBox(height: 20),
           SizedBox(
-            height: 196,
+            height: 200,
             child: Stack(
               children: [
                 Positioned.fill(
-                  bottom: 24,
+                  bottom: 26,
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       for (var i = 0; i < 4; i++)
-                        Divider(
+                        Container(
                           height: 1,
-                          color: colors.onSurfaceVariant.withValues(
-                            alpha: 0.12,
-                          ),
+                          color: p.border.withValues(alpha: 0.4),
                         ),
                     ],
                   ),
@@ -454,7 +449,7 @@ class _WeekdayChart extends StatelessWidget {
               child: Text(
                 'Finish a few tasks and your weekly rhythm will show here.',
                 textAlign: TextAlign.center,
-                style: text.bodySmall?.copyWith(color: colors.outline),
+                style: text.bodySmall?.copyWith(color: p.textMuted),
               ),
             ),
         ],
@@ -478,9 +473,9 @@ class _Bar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
+    final p = context.palette;
     final text = context.text;
-    final barHeight = 16 + 128 * fraction;
+    final barHeight = 20 + 124 * fraction;
 
     return Semantics(
       label: '$day: ${plural(value, 'task')}',
@@ -492,51 +487,54 @@ class _Bar extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
               decoration: BoxDecoration(
-                color: colors.primary,
+                color: p.accent,
                 borderRadius: BorderRadius.circular(999),
               ),
               child: Text(
                 '$value',
-                style: text.labelSmall?.copyWith(color: colors.onPrimary),
+                style: text.labelSmall?.copyWith(color: Colors.white),
               ),
             )
           else
             Text(
               '$value',
-              style: text.labelSmall?.copyWith(color: colors.onSurfaceVariant),
+              style: text.labelSmall?.copyWith(color: p.textSecondary),
             ),
           const SizedBox(height: 8),
-          TweenAnimationBuilder<double>(
-            tween: Tween(begin: 16, end: barHeight),
-            duration: const Duration(milliseconds: 500),
-            curve: Curves.easeOutCubic,
-            builder: (context, height, _) => Container(
-              width: 28,
-              height: height,
-              padding: const EdgeInsets.all(2),
-              decoration: BoxDecoration(
-                color: colors.surfaceContainerHigh,
-                borderRadius: BorderRadius.circular(999),
-                boxShadow: isPeak && !context.isDark ? AppShadows.sm : null,
-              ),
-              child: value == 0
-                  ? null
-                  : DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: colors.primary.withValues(
-                          alpha: isPeak ? 1 : 0.4 + 0.45 * fraction,
+          // Flexible: very large text can't push the bar out of the chart.
+          Flexible(
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 20, end: barHeight),
+              duration: const Duration(milliseconds: 500),
+              curve: Curves.easeOutCubic,
+              builder: (context, height, _) => Container(
+                width: 28,
+                height: height,
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  color: p.track,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: value == 0
+                    ? null
+                    : DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: p.accent.withValues(
+                            alpha: isPeak ? 1 : 0.4 + 0.4 * fraction,
+                          ),
+                          borderRadius: BorderRadius.circular(999),
+                          boxShadow: null,
                         ),
-                        borderRadius: BorderRadius.circular(999),
                       ),
-                    ),
+              ),
             ),
           ),
           const SizedBox(height: 8),
           Text(
             day,
             style: text.labelSmall?.copyWith(
-              color: isPeak ? colors.primary : colors.onSurfaceVariant,
-              fontWeight: isPeak ? FontWeight.w600 : null,
+              color: isPeak ? p.accent : p.textSecondary,
+              fontWeight: isPeak ? FontWeight.w700 : null,
             ),
           ),
         ],
@@ -552,17 +550,16 @@ class _AllocationCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
+    final p = context.palette;
     final text = context.text;
     final palette = [
-      colors.primary,
-      colors.primaryContainer,
-      colors.secondary,
-      colors.tertiaryContainer,
+      p.accent,
+      const Color(0xFFFB923C),
+      p.success,
+      p.amber,
     ];
 
-    return SurfaceCard(
-      padding: const EdgeInsets.all(20),
+    return Panel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -574,23 +571,27 @@ class _AllocationCard extends StatelessWidget {
               Text(
                 switch (shares.length) {
                   0 => 'No tasks yet',
-                  1 => '1 category',
-                  final n => '$n categories',
+                  1 => '1 Category',
+                  final n => '$n Categories',
                 },
-                style: text.labelSmall?.copyWith(
-                  color: colors.onSurfaceVariant,
-                ),
+                style: text.labelSmall?.copyWith(color: p.textSecondary),
               ),
             ],
           ),
           const SizedBox(height: 16),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: SizedBox(
-              height: 12,
+          Container(
+            height: 12,
+            padding: const EdgeInsets.all(2),
+            decoration: BoxDecoration(
+              color: p.track,
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(999),
               child: shares.isEmpty
-                  ? ColoredBox(color: colors.surfaceContainerHigh)
+                  ? const SizedBox.expand()
                   : Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         for (var i = 0; i < shares.length; i++) ...[
                           if (i > 0) const SizedBox(width: 2),
@@ -607,11 +608,11 @@ class _AllocationCard extends StatelessWidget {
           if (shares.isEmpty)
             Text(
               'Tasks due in this period will be grouped by category here.',
-              style: text.bodySmall?.copyWith(color: colors.outline),
+              style: text.bodySmall?.copyWith(color: p.textMuted),
             ),
           for (var i = 0; i < shares.length; i++)
             Padding(
-              padding: const EdgeInsets.only(bottom: 12),
+              padding: EdgeInsets.only(bottom: i == shares.length - 1 ? 0 : 12),
               child: Row(
                 children: [
                   Dot(color: palette[i], size: 12),
@@ -619,15 +620,15 @@ class _AllocationCard extends StatelessWidget {
                   Expanded(
                     child: Text(
                       shares[i].name,
-                      style: text.labelLarge,
+                      style: text.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w500,
+                      ),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
                   Text(
                     plural(shares[i].count, 'task'),
-                    style: text.bodySmall?.copyWith(
-                      color: colors.onSurfaceVariant,
-                    ),
+                    style: text.bodySmall?.copyWith(color: p.textSecondary),
                   ),
                   SizedBox(
                     width: 48,
@@ -648,8 +649,6 @@ class _AllocationCard extends StatelessWidget {
 
 class _InsightCard extends StatelessWidget {
   final IconData icon;
-  final Color iconBackground;
-  final Color iconColor;
   final String eyebrow;
   final Color eyebrowColor;
   final String title;
@@ -657,8 +656,6 @@ class _InsightCard extends StatelessWidget {
 
   const _InsightCard({
     required this.icon,
-    required this.iconBackground,
-    required this.iconColor,
     required this.eyebrow,
     required this.eyebrowColor,
     required this.title,
@@ -668,18 +665,13 @@ class _InsightCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final text = context.text;
-    return SurfaceCard(
-      color: context.colors.surfaceContainerLow,
+    return Panel(
+      padding: const EdgeInsets.all(16),
+      shadow: false,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          IconTile(
-            icon: icon,
-            background: iconBackground,
-            color: iconColor,
-            size: 44,
-            iconSize: 24,
-          ),
+          IconTile(icon: icon, size: 44, iconSize: 24),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
@@ -690,7 +682,7 @@ class _InsightCard extends StatelessWidget {
                   style: text.labelSmall?.copyWith(
                     color: eyebrowColor,
                     fontWeight: FontWeight.w600,
-                    letterSpacing: 1,
+                    letterSpacing: 1.2,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -699,7 +691,7 @@ class _InsightCard extends StatelessWidget {
                 Text(
                   body,
                   style: text.bodySmall?.copyWith(
-                    color: context.colors.onSurfaceVariant,
+                    color: context.palette.textSecondary,
                   ),
                 ),
               ],
@@ -719,16 +711,13 @@ class _FocusWindowCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
     final w = window;
     String hour(int h) => DateFormat('h:mm a').format(DateTime(2000, 1, 1, h));
 
     return _InsightCard(
       icon: Icons.wb_sunny_outlined,
-      iconBackground: colors.tertiaryFixed,
-      iconColor: colors.onTertiaryFixed,
       eyebrow: 'OPTIMAL WINDOW',
-      eyebrowColor: colors.onSurfaceVariant,
+      eyebrowColor: context.palette.textSecondary,
       title: w == null
           ? 'Still learning your rhythm'
           : '${hour(w.startHour)} – ${hour(w.endHour % 24)}',
@@ -749,7 +738,6 @@ class _MilestoneCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
     final unlocked = achievement;
     final upcoming = next;
 
@@ -759,10 +747,8 @@ class _MilestoneCard extends StatelessWidget {
       icon: unlocked == null
           ? Icons.flag_outlined
           : Icons.workspace_premium_outlined,
-      iconBackground: colors.primaryFixed,
-      iconColor: colors.onPrimaryFixed,
       eyebrow: unlocked == null ? 'NEXT MILESTONE' : 'ACHIEVEMENT UNLOCKED',
-      eyebrowColor: colors.primary,
+      eyebrowColor: context.palette.accent,
       title: (unlocked ?? upcoming)!.title,
       body: unlocked != null
           ? upcoming == null

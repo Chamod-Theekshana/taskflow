@@ -55,7 +55,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     errorBuilder: (context, state) => const NotFoundScreen(),
     routes: [
       GoRoute(path: '/', redirect: (_, _) => AppRoutes.home),
-      GoRoute(path: AppRoutes.splash, builder: (_, _) => const SplashScreen()),
+      GoRoute(
+        path: AppRoutes.splash,
+        pageBuilder: (_, state) => _fade(state, const SplashScreen()),
+      ),
       GoRoute(
         path: AppRoutes.login,
         pageBuilder: (_, state) => _fade(state, const LoginScreen()),

@@ -21,7 +21,7 @@ class AppSettings {
     this.notificationsEnabled = true,
     this.dailyDigestEnabled = false,
     this.dailyDigestTime = '08:00',
-    this.themeMode = ThemeMode.system,
+    this.themeMode = ThemeMode.dark,
     this.defaultPriority = TaskPriority.medium,
     this.dailyGoal = 4,
     this.customCategories = const [],

@@ -1,11 +1,13 @@
 # TaskFlow
 
-A calm, offline-first task manager built with Flutter. Everything lives on the
-device: accounts and tasks in SQLite, preferences in SharedPreferences. There
-is no server and nothing is sent anywhere.
+A focused, offline-first task manager built with Flutter. Everything lives on
+the device: accounts and tasks in SQLite, preferences in SharedPreferences.
+There is no server and nothing is sent anywhere.
 
-The UI follows the "Serene Focus" design (indigo on soft off-white, Plus
-Jakarta Sans for headings, Inter for body text).
+The UI follows the "Obsidian Kinetic" design: deep charcoal surfaces stacked
+in tonal tiers, safety orange (`#FF6B00`) for anything active, Geist for
+headings and body text and JetBrains Mono for labels, badges and numbers.
+Dark is the default; a matching light theme is available in Profile.
 
 ## Features
 
@@ -22,7 +24,8 @@ Jakarta Sans for headings, Inter for body text).
 - **Stats**: flow score, on-time rate, streaks, weekday chart, category split,
   best focus hours and milestones
 - **Backup**: export all tasks as JSON to the clipboard and import them again
-- Light and dark theme
+- Welcome screen with "Get Started" and "Log In" for signed-out users
+- Dark (default) and light theme
 
 ## Getting started
 
@@ -46,12 +49,12 @@ lib/
   app.dart, main.dart
   core/          database, routing, theme, notifications, helpers
   features/
-    auth/        splash, sign in / sign up, local accounts
+    auth/        splash / welcome, log in / sign up, local accounts
     tasks/       task list, search, calendar, details, add / edit
     stats/       productivity numbers and the stats screen
     settings/    preferences and the profile screen
-  shared/        app shell (the floating dock), headers, small widgets
-assets/fonts/    Plus Jakarta Sans and Inter (SIL Open Font License)
+  shared/        app shell (the notched dock), headers, UI kit
+assets/fonts/    Geist and JetBrains Mono (SIL Open Font License)
 test/            unit tests
 ```
 
@@ -65,9 +68,12 @@ handled with Riverpod 3 and navigation with go_router.
   receivers declared in `AndroidManifest.xml`. The app asks for notification
   permission the first time a reminder is saved or notifications are switched
   on in Profile.
-- **Start-up.** The splash screen plays while the saved session is restored
-  and then hands over to the router, which opens the task list or the sign-in
-  screen.
+- **Start-up.** The splash screen plays while the saved session is restored.
+  Signed-in users then go straight to their tasks; signed-out users stay on
+  it as a welcome page with "Get Started" (sign up) and "Log In".
+- **Design tokens.** Colours live in `core/theme/app_colors.dart`
+  (`AppPalette`, read with `context.palette`); text styles in
+  `core/theme/app_theme.dart`.
 - **Passwords** are stored as salted, iterated SHA-256 hashes.
 - **Database upgrades** are handled in `core/database/app_database.dart`
   (currently schema version 4).

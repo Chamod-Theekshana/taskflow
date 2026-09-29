@@ -52,15 +52,17 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     final tasks = ref.watch(taskListProvider.select((s) => s.tasks));
     final now = DateTime.now();
-    final searching = _query.trim().isNotEmpty || _quick != null;
+    final quick = _quick;
+    final searching = _query.trim().isNotEmpty || quick != null;
 
     final results = searching
         ? TaskListState.sortTasks([
             for (final t in tasks)
               if (TaskListState.matchesQuery(t, _query) &&
-                  (_quick == null || _quick!.matches(t, now)))
+                  (quick == null || quick.matches(t, now)))
                 t,
           ], TaskSort.dueDate)
         : ([...tasks]..sort((a, b) => b.updatedAt.compareTo(a.updatedAt)))
@@ -73,14 +75,14 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         Expanded(
           child: ListView(
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-            padding: EdgeInsets.fromLTRB(20, 16, 20, dockClearance(context)),
+            padding: EdgeInsets.fromLTRB(20, 20, 20, dockClearance(context)),
             children: [
               Text('Find anything', style: context.text.displayMedium),
-              const SizedBox(height: 4),
+              const SizedBox(height: 2),
               Text(
                 'Titles, notes, categories and subtasks.',
                 style: context.text.bodySmall?.copyWith(
-                  color: context.colors.onSurfaceVariant,
+                  color: p.textSecondary,
                 ),
               ),
               const SizedBox(height: 20),
@@ -95,15 +97,15 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 clipBehavior: Clip.none,
                 child: Row(
                   children: [
-                    for (final quick in _Quick.values)
+                    for (final item in _Quick.values)
                       Padding(
                         padding: const EdgeInsets.only(right: 8),
-                        child: ChoicePill(
-                          label: quick.label,
-                          icon: quick.icon,
-                          selected: _quick == quick,
+                        child: FilterPill(
+                          label: item.label,
+                          icon: item.icon,
+                          selected: _quick == item,
                           onTap: () => setState(
-                            () => _quick = _quick == quick ? null : quick,
+                            () => _quick = _quick == item ? null : item,
                           ),
                         ),
                       ),
@@ -113,11 +115,24 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               const SizedBox(height: 24),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Text(
-                  searching
-                      ? plural(results.length, 'result')
-                      : 'Recently updated',
-                  style: context.text.headlineSmall,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        searching ? 'Results' : 'Recently updated',
+                        style: context.text.headlineSmall,
+                      ),
+                    ),
+                    if (searching)
+                      Text(
+                        results.length == 1
+                            ? '1 match'
+                            : '${results.length} matches',
+                        style: context.text.labelSmall?.copyWith(
+                          color: p.textSecondary,
+                        ),
+                      ),
+                  ],
                 ),
               ),
               const SizedBox(height: 12),
