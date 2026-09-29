@@ -10,7 +10,16 @@ import '../../../../shared/widgets/ui.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/auth_widgets.dart';
 
-/// 0-3: long enough (8+), mixed case, has a digit.
+/// The rules a new password has to meet: 8+ characters, upper and lower
+/// case, and a number.
+bool passwordMeetsRules(String password) =>
+    password.length >= 8 &&
+    password.contains(RegExp(r'[A-Z]')) &&
+    password.contains(RegExp(r'[a-z]')) &&
+    password.contains(RegExp(r'[0-9]'));
+
+/// 0-4: long enough (8+), mixed case, has a digit, and either a symbol or
+/// 12+ characters.
 int passwordScore(String password) {
   var score = 0;
   if (password.length >= 8) score++;
@@ -19,6 +28,9 @@ int passwordScore(String password) {
     score++;
   }
   if (password.contains(RegExp(r'[0-9]'))) score++;
+  if (password.length >= 12 || password.contains(RegExp(r'[^A-Za-z0-9]'))) {
+    score++;
+  }
   return score;
 }
 
@@ -65,6 +77,8 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
     super.dispose();
   }
 
+  void _leave() => context.go(AppRoutes.splash);
+
   void _showPolicy(String title, String body) {
     showDialog<void>(
       context: context,
@@ -93,6 +107,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
       await ref
           .read(authProvider.notifier)
           .signup(_name.text.trim(), _email.text.trim(), _password.text);
+      // The router sends the new account to the task list.
     } catch (e) {
       if (mounted) showMessage(context, describeError(e));
     } finally {
@@ -102,279 +117,341 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
+    final p = context.palette;
     final text = context.text;
-    final linkStyle = text.labelSmall?.copyWith(
-      fontSize: 13,
-      color: colors.primary,
-      fontWeight: FontWeight.w600,
+    final linkStyle = TextStyle(
+      color: p.text,
+      decoration: TextDecoration.underline,
+      decorationColor: p.text.withValues(alpha: 0.6),
     );
 
-    return Scaffold(
-      backgroundColor: colors.surface,
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 448),
-              child: AutofillGroup(
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Center(
-                        child: Pill(
-                          label: 'FREE • WORKS OFFLINE',
-                          icon: Icons.auto_awesome_rounded,
-                          background: colors.primaryFixed,
-                          foreground: colors.onPrimaryFixedVariant,
-                          style: text.labelSmall?.copyWith(
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 0.8,
-                          ),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 4,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Create your account',
-                        textAlign: TextAlign.center,
-                        style: text.displayMedium,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Start cultivating calm focus and effortless daily '
-                        'progress.',
-                        textAlign: TextAlign.center,
-                        style: text.bodyMedium?.copyWith(
-                          color: colors.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: 32),
-                      AuthField(
-                        label: 'Full Name',
-                        controller: _name,
-                        icon: Icons.person_outline_rounded,
-                        hint: 'Alex Morgan',
-                        textInputAction: TextInputAction.next,
-                        textCapitalization: TextCapitalization.words,
-                        autofillHints: const [AutofillHints.name],
-                        validator: (value) => (value ?? '').trim().isEmpty
-                            ? 'Tell us what to call you'
-                            : null,
-                      ),
-                      const SizedBox(height: 16),
-                      AuthField(
-                        label: 'Work or Personal Email',
-                        controller: _email,
-                        icon: Icons.mail_outline_rounded,
-                        hint: 'alex@example.com',
-                        keyboardType: TextInputType.emailAddress,
-                        textInputAction: TextInputAction.next,
-                        autofillHints: const [AutofillHints.email],
-                        validator: (value) {
-                          final email = value?.trim() ?? '';
-                          if (email.isEmpty) return 'Enter your email';
-                          if (!emailPattern.hasMatch(email)) {
-                            return 'That email address looks incomplete';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      ValueListenableBuilder<TextEditingValue>(
-                        valueListenable: _password,
-                        builder: (context, value, _) {
-                          final score = passwordScore(value.text);
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              AuthField(
-                                label: 'Password',
-                                labelTrailing: _StrengthLabel(
-                                  empty: value.text.isEmpty,
-                                  score: score,
-                                ),
-                                controller: _password,
-                                icon: Icons.lock_outline_rounded,
-                                hint: 'Create a password',
-                                obscure: _hidePassword,
-                                textInputAction: TextInputAction.done,
-                                autofillHints: const [
-                                  AutofillHints.newPassword,
-                                ],
-                                onSubmitted: (_) => _create(),
-                                validator: (v) => passwordScore(v ?? '') < 3
-                                    ? 'Use 8+ characters with upper and '
-                                          'lower case and a number'
-                                    : null,
-                                suffix: IconButton(
-                                  tooltip: _hidePassword
-                                      ? 'Show password'
-                                      : 'Hide password',
-                                  onPressed: () => setState(
-                                    () => _hidePassword = !_hidePassword,
-                                  ),
-                                  icon: Icon(
-                                    _hidePassword
-                                        ? Icons.visibility_off_outlined
-                                        : Icons.visibility_outlined,
-                                    size: 20,
-                                    color: colors.outline,
-                                  ),
-                                ),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _leave();
+      },
+      child: Scaffold(
+        backgroundColor: p.canvas,
+        body: Stack(
+          children: [
+            const Positioned.fill(child: AuthTopGlow()),
+            SafeArea(
+              child: Center(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 440),
+                    child: AutofillGroup(
+                      child: Form(
+                        key: _formKey,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: SquareIconButton(
+                                icon: Icons.arrow_back_rounded,
+                                tooltip: 'Back',
+                                radius: 20,
+                                onTap: _leave,
                               ),
-                              const SizedBox(height: 8),
-                              _StrengthBars(
-                                empty: value.text.isEmpty,
-                                score: score,
-                              ),
-                            ],
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.only(top: 1),
-                            child: RoundCheck(
-                              value: _agreed,
-                              activeColor: colors.secondary,
-                              onChanged: (v) => setState(() => _agreed = v),
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text.rich(
-                              TextSpan(
-                                style: text.bodySmall?.copyWith(
-                                  color: colors.onSurfaceVariant,
+                            const SizedBox(height: 24),
+                            Row(
+                              children: [
+                                PulsingDot(color: p.accent),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'FREE • WORKS OFFLINE',
+                                  style: text.labelSmall?.copyWith(
+                                    color: p.accentSoft,
+                                    letterSpacing: 1.6,
+                                  ),
                                 ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Create Your Account',
+                              style: text.displayMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Plan, focus and finish what matters. '
+                              'Everything stays on this device.',
+                              style: text.bodyMedium?.copyWith(
+                                color: p.warmMuted,
+                              ),
+                            ),
+                            const SizedBox(height: 28),
+                            const FieldLabel(
+                              'Full name',
+                              trailing: FieldNote('Required'),
+                            ),
+                            AuthField(
+                              controller: _name,
+                              icon: Icons.person_outline_rounded,
+                              hint: 'Alex Morgan',
+                              textInputAction: TextInputAction.next,
+                              textCapitalization: TextCapitalization.words,
+                              autofillHints: const [AutofillHints.name],
+                              validator: (value) =>
+                                  (value ?? '').trim().isEmpty
+                                  ? 'Tell us what to call you'
+                                  : null,
+                            ),
+                            const SizedBox(height: 16),
+                            const FieldLabel(
+                              'Email address',
+                              trailing: FieldNote('Required'),
+                            ),
+                            AuthField(
+                              controller: _email,
+                              icon: Icons.mail_outline_rounded,
+                              hint: 'alex@designflow.io',
+                              keyboardType: TextInputType.emailAddress,
+                              textInputAction: TextInputAction.next,
+                              autofillHints: const [AutofillHints.email],
+                              validator: (value) {
+                                final email = value?.trim() ?? '';
+                                if (email.isEmpty) return 'Enter your email';
+                                if (!emailPattern.hasMatch(email)) {
+                                  return 'That email address looks incomplete';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 16),
+                            FieldLabel(
+                              'Password',
+                              trailing: FieldNote(
+                                _hidePassword ? 'Reveal' : 'Hide',
+                                icon: _hidePassword
+                                    ? Icons.visibility_outlined
+                                    : Icons.visibility_off_outlined,
+                                onTap: () => setState(
+                                  () => _hidePassword = !_hidePassword,
+                                ),
+                              ),
+                            ),
+                            ValueListenableBuilder<TextEditingValue>(
+                              valueListenable: _password,
+                              builder: (context, value, _) {
+                                final score = passwordScore(value.text);
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  children: [
+                                    AuthField(
+                                      controller: _password,
+                                      icon: Icons.lock_outline_rounded,
+                                      hint: 'Create a strong password',
+                                      obscure: _hidePassword,
+                                      mono: true,
+                                      textInputAction: TextInputAction.done,
+                                      autofillHints: const [
+                                        AutofillHints.newPassword,
+                                      ],
+                                      onSubmitted: (_) => _create(),
+                                      validator: (v) =>
+                                          passwordMeetsRules(v ?? '')
+                                          ? null
+                                          : 'Use 8+ characters with upper '
+                                                'and lower case and a number',
+                                      suffix: value.text.isEmpty
+                                          ? null
+                                          : Center(
+                                              widthFactor: 1,
+                                              child: Padding(
+                                                padding: const EdgeInsets.only(
+                                                  right: 14,
+                                                ),
+                                                child: Dot(
+                                                  color: _strengthColor(
+                                                    p,
+                                                    score,
+                                                  ),
+                                                  glow: true,
+                                                ),
+                                              ),
+                                            ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    _StrengthMeter(
+                                      empty: value.text.isEmpty,
+                                      score: score,
+                                    ),
+                                  ],
+                                );
+                              },
+                            ),
+                            const SizedBox(height: 18),
+                            GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () => setState(() => _agreed = !_agreed),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const TextSpan(text: 'I agree to the '),
-                                  TextSpan(
-                                    text: 'Terms of Service',
-                                    style: linkStyle,
-                                    recognizer: _termsTap,
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 1),
+                                    child: AuthCheckbox(
+                                      value: _agreed,
+                                      semanticLabel: 'Accept the terms',
+                                      onChanged: (v) =>
+                                          setState(() => _agreed = v),
+                                    ),
                                   ),
-                                  const TextSpan(text: ' and '),
-                                  TextSpan(
-                                    text: 'Privacy Policy',
-                                    style: linkStyle,
-                                    recognizer: _privacyTap,
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text.rich(
+                                      TextSpan(
+                                        style: text.bodySmall?.copyWith(
+                                          color: p.warmMuted,
+                                        ),
+                                        children: [
+                                          const TextSpan(
+                                            text: 'I agree to the ',
+                                          ),
+                                          TextSpan(
+                                            text: 'Terms of Service',
+                                            style: linkStyle,
+                                            recognizer: _termsTap,
+                                          ),
+                                          const TextSpan(text: ' and '),
+                                          TextSpan(
+                                            text: 'Privacy Policy',
+                                            style: linkStyle,
+                                            recognizer: _privacyTap,
+                                          ),
+                                          const TextSpan(text: '.'),
+                                        ],
+                                      ),
+                                    ),
                                   ),
-                                  const TextSpan(text: '.'),
                                 ],
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 24),
-                      PrimaryButton(
-                        label: 'Create Account',
-                        icon: Icons.arrow_forward_rounded,
-                        loading: _busy,
-                        onPressed: _create,
-                      ),
-                      const SizedBox(height: 32),
-                      Wrap(
-                        alignment: WrapAlignment.center,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          Text(
-                            'Already have an account?',
-                            style: text.bodyMedium?.copyWith(
-                              color: colors.onSurfaceVariant,
+                            const SizedBox(height: 24),
+                            PrimaryButton(
+                              label: 'Get Started Free',
+                              icon: Icons.arrow_forward_rounded,
+                              loading: _busy,
+                              height: 54,
+                              textStyle: text.titleLarge,
+                              onPressed: _create,
                             ),
-                          ),
-                          TextButton(
-                            onPressed: () => context.go(AppRoutes.login),
-                            style: TextButton.styleFrom(
-                              textStyle: text.headlineSmall,
+                            const SizedBox(height: 24),
+                            AuthSwitchLink(
+                              question: 'Already registered?',
+                              action: 'Log In',
+                              onTap: () => context.go(AppRoutes.login),
                             ),
-                            child: const Text('Sign in'),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
+          ],
         ),
       ),
     );
   }
 }
 
-class _StrengthLabel extends StatelessWidget {
+Color _strengthColor(AppPalette p, int score) => switch (score) {
+  4 => p.success,
+  3 => p.accent,
+  2 => p.amber,
+  _ => p.danger,
+};
+
+String _strengthLabel(int score) => switch (score) {
+  4 => 'Strong',
+  3 => 'Good',
+  2 => 'Fair',
+  _ => 'Weak',
+};
+
+/// "Password strength" line with four segments, orange rising to green.
+class _StrengthMeter extends StatelessWidget {
   final bool empty;
   final int score;
 
-  const _StrengthLabel({required this.empty, required this.score});
+  const _StrengthMeter({required this.empty, required this.score});
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
-    final (icon, label, color) = empty
-        ? (Icons.info_outline_rounded, 'Enter password', colors.outline)
-        : switch (score) {
-            3 => (Icons.verified_outlined, 'Strong password', colors.secondary),
-            2 => (Icons.shield_outlined, 'Medium strength', colors.tertiary),
-            _ => (Icons.warning_amber_rounded, 'Too weak', colors.error),
-          };
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 14, color: color),
-        const SizedBox(width: 4),
-        Text(label, style: context.text.labelSmall?.copyWith(color: color)),
-      ],
-    );
-  }
-}
+    final p = context.palette;
+    final text = context.text;
+    final filled = empty ? 0 : score.clamp(1, 4);
+    final segments = [
+      p.accent,
+      p.accent,
+      const Color(0xFFEC6A06),
+      p.success,
+    ];
+    final color = _strengthColor(p, score);
 
-class _StrengthBars extends StatelessWidget {
-  final bool empty;
-  final int score;
-
-  const _StrengthBars({required this.empty, required this.score});
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-    final filled = empty ? 0 : (score <= 1 ? 1 : score);
-    final color = switch (filled) {
-      3 => colors.secondary,
-      2 => colors.tertiaryFixedDim,
-      _ => colors.error,
-    };
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: Row(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: Column(
         children: [
-          for (var i = 0; i < 3; i++) ...[
-            if (i > 0) const SizedBox(width: 6),
-            Expanded(
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 250),
-                height: 4,
-                decoration: BoxDecoration(
-                  color: i < filled ? color : colors.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(999),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Password strength',
+                  style: text.labelSmall?.copyWith(color: p.warmMuted),
                 ),
               ),
-            ),
-          ],
+              if (empty)
+                Text(
+                  '8+ chars, Aa, 0-9',
+                  style: text.labelSmall?.copyWith(color: p.textFaint),
+                )
+              else ...[
+                Dot(color: color, size: 6),
+                const SizedBox(width: 4),
+                Text(
+                  '${_strengthLabel(score)} ($score/4)',
+                  style: text.labelSmall?.copyWith(
+                    color: color,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              for (var i = 0; i < 4; i++) ...[
+                if (i > 0) const SizedBox(width: 6),
+                Expanded(
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 250),
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: i < filled ? segments[i] : p.track,
+                      borderRadius: BorderRadius.circular(999),
+                      boxShadow: i < filled
+                          ? [
+                              BoxShadow(
+                                color: segments[i].withValues(alpha: 0.45),
+                                blurRadius: 8,
+                              ),
+                            ]
+                          : null,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
         ],
       ),
     );

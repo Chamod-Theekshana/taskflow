@@ -2,13 +2,15 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-/// Circular progress that animates to [progress] (0..1).
+/// Circular progress that animates to [progress] (0..1), with an optional
+/// soft glow under the arc.
 class ProgressRing extends StatelessWidget {
   final double progress;
   final double size;
   final double strokeWidth;
   final Color color;
   final Color trackColor;
+  final bool glow;
   final Widget? child;
 
   const ProgressRing({
@@ -18,6 +20,7 @@ class ProgressRing extends StatelessWidget {
     required this.strokeWidth,
     required this.color,
     required this.trackColor,
+    this.glow = true,
     this.child,
   });
 
@@ -34,6 +37,7 @@ class ProgressRing extends StatelessWidget {
           strokeWidth: strokeWidth,
           color: color,
           trackColor: trackColor,
+          glow: glow,
         ),
         child: child,
       ),
@@ -50,12 +54,14 @@ class _RingPainter extends CustomPainter {
   final double strokeWidth;
   final Color color;
   final Color trackColor;
+  final bool glow;
 
   _RingPainter({
     required this.progress,
     required this.strokeWidth,
     required this.color,
     required this.trackColor,
+    required this.glow,
   });
 
   @override
@@ -73,10 +79,26 @@ class _RingPainter extends CustomPainter {
         ..strokeWidth = strokeWidth,
     );
     if (progress <= 0) return;
+
+    final sweep = 2 * math.pi * progress;
+    if (glow) {
+      canvas.drawArc(
+        rect,
+        -math.pi / 2,
+        sweep,
+        false,
+        Paint()
+          ..color = color.withValues(alpha: 0.45)
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round
+          ..strokeWidth = strokeWidth
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, strokeWidth * 0.6),
+      );
+    }
     canvas.drawArc(
       rect,
       -math.pi / 2,
-      2 * math.pi * progress,
+      sweep,
       false,
       Paint()
         ..color = color
@@ -91,5 +113,6 @@ class _RingPainter extends CustomPainter {
       old.progress != progress ||
       old.color != color ||
       old.trackColor != trackColor ||
-      old.strokeWidth != strokeWidth;
+      old.strokeWidth != strokeWidth ||
+      old.glow != glow;
 }

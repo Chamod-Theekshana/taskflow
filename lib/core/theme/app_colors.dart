@@ -1,105 +1,301 @@
 import 'package:flutter/material.dart';
 
-/// Colours from the "Serene Focus" design system.
-abstract final class AppColors {
-  static const primary = Color(0xFF4648D4);
-  static const primaryContainer = Color(0xFF6063EE);
-  static const indigo = Color(0xFF6366F1);
-  static const indigoDeep = Color(0xFF4F46E5);
+/// Colour tokens of the "Obsidian Kinetic" design: deep charcoal surfaces
+/// stacked in tonal tiers, with safety orange for anything active.
+///
+/// Read them with `context.palette`. A light variant with the same roles
+/// backs the Light option of the theme switch.
+@immutable
+class AppPalette extends ThemeExtension<AppPalette> {
+  /// Page background.
+  final Color canvas;
 
-  static const surface = Color(0xFFFAF8FF);
-  static const surfaceDim = Color(0xFFD2D9F4);
-  static const surfaceLowest = Color(0xFFFFFFFF);
-  static const surfaceLow = Color(0xFFF2F3FF);
-  static const surfaceContainer = Color(0xFFEAEDFF);
-  static const surfaceHigh = Color(0xFFE2E7FF);
-  static const surfaceHighest = Color(0xFFDAE2FD);
-  static const onSurface = Color(0xFF131B2E);
-  static const onSurfaceVariant = Color(0xFF464554);
-  static const outline = Color(0xFF767586);
-  static const outlineVariant = Color(0xFFC7C4D7);
+  /// Cards and panels (`#1a1c22`).
+  final Color card;
 
-  static const primaryFixed = Color(0xFFE1E0FF);
-  static const primaryFixedDim = Color(0xFFC0C1FF);
-  static const onPrimaryFixed = Color(0xFF07006C);
-  static const onPrimaryFixedVariant = Color(0xFF2F2EBE);
+  /// Tiles nested in cards, finished task cards (`#15171d`).
+  final Color cardMuted;
 
-  static const secondary = Color(0xFF006C49);
-  static const secondaryContainer = Color(0xFF6CF8BB);
-  static const onSecondaryContainer = Color(0xFF00714D);
-  static const secondaryFixed = Color(0xFF6FFBBE);
-  static const secondaryFixedDim = Color(0xFF4EDEA3);
-  static const onSecondaryFixed = Color(0xFF002113);
-  static const onSecondaryFixedVariant = Color(0xFF005236);
+  /// Deepest well: checkboxes, segmented control tracks (`#121316`).
+  final Color well;
 
-  static const tertiary = Color(0xFF825100);
-  static const tertiaryContainer = Color(0xFFA36700);
-  static const tertiaryFixed = Color(0xFFFFDDB8);
-  static const tertiaryFixedDim = Color(0xFFFFB95F);
-  static const onTertiaryFixed = Color(0xFF2A1700);
-  static const onTertiaryFixedVariant = Color(0xFF653E00);
+  /// Tags, secondary chips and buttons (`#22252e`).
+  final Color raised;
 
-  static const error = Color(0xFFBA1A1A);
-  static const errorContainer = Color(0xFFFFDAD6);
-  static const onErrorContainer = Color(0xFF93000A);
+  /// Progress tracks and counters (`#282b35`).
+  final Color track;
 
-  static const inverseSurface = Color(0xFF283044);
-  static const inverseOnSurface = Color(0xFFEEF0FF);
+  /// 1px structural borders (`#2a2d36`).
+  final Color border;
 
-  /// The app icon tile (`from-primary to-primary-container`, bottom-left to
-  /// top-right).
-  static const logoGradient = LinearGradient(
-    begin: Alignment.bottomLeft,
-    end: Alignment.topRight,
-    colors: [primary, primaryContainer],
+  /// Very soft separators inside cards.
+  final Color divider;
+
+  final Color text;
+  final Color textSecondary;
+  final Color textMuted;
+  final Color textFaint;
+
+  /// Warm secondary text of the sign-in screens (`#e2bfb0`).
+  final Color warm;
+
+  /// Warm muted text: field labels, hints (`#a98a7d`).
+  final Color warmMuted;
+
+  /// Safety orange.
+  final Color accent;
+
+  /// End colour of the orange gradients.
+  final Color accentBright;
+
+  /// Light orange used for text on orange-tinted backgrounds.
+  final Color accentSoft;
+
+  /// Medium priority.
+  final Color peach;
+  final Color peachTint;
+  final Color peachText;
+
+  /// Low priority strip and dot.
+  final Color low;
+
+  final Color success;
+  final Color successTint;
+  final Color successBorder;
+
+  final Color danger;
+  final Color amber;
+
+  final Color dockTop;
+  final Color dockBottom;
+
+  /// Colour of the soft drop shadows under cards.
+  final Color shadow;
+
+  const AppPalette({
+    required this.canvas,
+    required this.card,
+    required this.cardMuted,
+    required this.well,
+    required this.raised,
+    required this.track,
+    required this.border,
+    required this.divider,
+    required this.text,
+    required this.textSecondary,
+    required this.textMuted,
+    required this.textFaint,
+    required this.warm,
+    required this.warmMuted,
+    required this.accent,
+    required this.accentBright,
+    required this.accentSoft,
+    required this.peach,
+    required this.peachTint,
+    required this.peachText,
+    required this.low,
+    required this.success,
+    required this.successTint,
+    required this.successBorder,
+    required this.danger,
+    required this.amber,
+    required this.dockTop,
+    required this.dockBottom,
+    required this.shadow,
+  });
+
+  static const dark = AppPalette(
+    canvas: Color(0xFF0E0F12),
+    card: Color(0xFF1A1C22),
+    cardMuted: Color(0xFF15171D),
+    well: Color(0xFF121316),
+    raised: Color(0xFF22252E),
+    track: Color(0xFF282B35),
+    border: Color(0xFF2A2D36),
+    divider: Color(0x0FFFFFFF),
+    text: Color(0xFFFFFFFF),
+    textSecondary: Color(0xFF9CA3AF),
+    textMuted: Color(0xFF6B7280),
+    textFaint: Color(0xFF4B5563),
+    warm: Color(0xFFE2BFB0),
+    warmMuted: Color(0xFFA98A7D),
+    accent: Color(0xFFFF6B00),
+    accentBright: Color(0xFFFF8533),
+    accentSoft: Color(0xFFFFB693),
+    peach: Color(0xFFFFB77D),
+    peachTint: Color(0xFF2A1E17),
+    peachText: Color(0xFFFFDCC3),
+    low: Color(0xFF4A4E5A),
+    success: Color(0xFF34D399),
+    successTint: Color(0xFF102A1B),
+    successBorder: Color(0xFF1E4A30),
+    danger: Color(0xFFFB7185),
+    amber: Color(0xFFF59E0B),
+    dockTop: Color(0xFF1E2129),
+    dockBottom: Color(0xFF14161C),
+    shadow: Color(0x66000000),
   );
 
-  /// The floating navigation dock.
-  static const dockGradient = LinearGradient(
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-    colors: [indigoDeep, indigo],
+  static const light = AppPalette(
+    canvas: Color(0xFFF4F5F7),
+    card: Color(0xFFFFFFFF),
+    cardMuted: Color(0xFFF3F4F6),
+    well: Color(0xFFF1F2F5),
+    raised: Color(0xFFEEF0F3),
+    track: Color(0xFFE4E7EC),
+    border: Color(0xFFE2E4EA),
+    divider: Color(0x0F000000),
+    text: Color(0xFF111318),
+    textSecondary: Color(0xFF5B6270),
+    textMuted: Color(0xFF8A919E),
+    textFaint: Color(0xFFB4BAC4),
+    warm: Color(0xFF7A4E3A),
+    warmMuted: Color(0xFF9C7564),
+    accent: Color(0xFFFF6B00),
+    accentBright: Color(0xFFFF8533),
+    accentSoft: Color(0xFFC2410C),
+    peach: Color(0xFFF29A4A),
+    peachTint: Color(0xFFFFF1E6),
+    peachText: Color(0xFF9A4A00),
+    low: Color(0xFFB8BEC8),
+    success: Color(0xFF059669),
+    successTint: Color(0xFFE7F8F0),
+    successBorder: Color(0xFFBBEBD5),
+    danger: Color(0xFFE11D48),
+    amber: Color(0xFFD97706),
+    dockTop: Color(0xFFFFFFFF),
+    dockBottom: Color(0xFFF3F4F6),
+    shadow: Color(0x14000000),
   );
+
+  /// Primary buttons and the active dock disc: orange, brightening to the
+  /// right.
+  LinearGradient get accentGradient => LinearGradient(
+    begin: Alignment.centerLeft,
+    end: Alignment.centerRight,
+    colors: [accent, accentBright],
+  );
+
+  /// Orange halo behind active elements (removed).
+  List<BoxShadow> glow([double strength = 1]) => const [];
+
+  /// Soft drop shadow under cards (`shadow-lg shadow-black/40`).
+  List<BoxShadow> get cardShadow => [
+    BoxShadow(color: shadow, blurRadius: 24, offset: const Offset(0, 8)),
+  ];
+
+  @override
+  AppPalette copyWith({
+    Color? canvas,
+    Color? card,
+    Color? cardMuted,
+    Color? well,
+    Color? raised,
+    Color? track,
+    Color? border,
+    Color? divider,
+    Color? text,
+    Color? textSecondary,
+    Color? textMuted,
+    Color? textFaint,
+    Color? warm,
+    Color? warmMuted,
+    Color? accent,
+    Color? accentBright,
+    Color? accentSoft,
+    Color? peach,
+    Color? peachTint,
+    Color? peachText,
+    Color? low,
+    Color? success,
+    Color? successTint,
+    Color? successBorder,
+    Color? danger,
+    Color? amber,
+    Color? dockTop,
+    Color? dockBottom,
+    Color? shadow,
+  }) {
+    return AppPalette(
+      canvas: canvas ?? this.canvas,
+      card: card ?? this.card,
+      cardMuted: cardMuted ?? this.cardMuted,
+      well: well ?? this.well,
+      raised: raised ?? this.raised,
+      track: track ?? this.track,
+      border: border ?? this.border,
+      divider: divider ?? this.divider,
+      text: text ?? this.text,
+      textSecondary: textSecondary ?? this.textSecondary,
+      textMuted: textMuted ?? this.textMuted,
+      textFaint: textFaint ?? this.textFaint,
+      warm: warm ?? this.warm,
+      warmMuted: warmMuted ?? this.warmMuted,
+      accent: accent ?? this.accent,
+      accentBright: accentBright ?? this.accentBright,
+      accentSoft: accentSoft ?? this.accentSoft,
+      peach: peach ?? this.peach,
+      peachTint: peachTint ?? this.peachTint,
+      peachText: peachText ?? this.peachText,
+      low: low ?? this.low,
+      success: success ?? this.success,
+      successTint: successTint ?? this.successTint,
+      successBorder: successBorder ?? this.successBorder,
+      danger: danger ?? this.danger,
+      amber: amber ?? this.amber,
+      dockTop: dockTop ?? this.dockTop,
+      dockBottom: dockBottom ?? this.dockBottom,
+      shadow: shadow ?? this.shadow,
+    );
+  }
+
+  @override
+  AppPalette lerp(ThemeExtension<AppPalette>? other, double t) {
+    if (other is! AppPalette) return this;
+    Color mix(Color a, Color b) => Color.lerp(a, b, t)!;
+    return AppPalette(
+      canvas: mix(canvas, other.canvas),
+      card: mix(card, other.card),
+      cardMuted: mix(cardMuted, other.cardMuted),
+      well: mix(well, other.well),
+      raised: mix(raised, other.raised),
+      track: mix(track, other.track),
+      border: mix(border, other.border),
+      divider: mix(divider, other.divider),
+      text: mix(text, other.text),
+      textSecondary: mix(textSecondary, other.textSecondary),
+      textMuted: mix(textMuted, other.textMuted),
+      textFaint: mix(textFaint, other.textFaint),
+      warm: mix(warm, other.warm),
+      warmMuted: mix(warmMuted, other.warmMuted),
+      accent: mix(accent, other.accent),
+      accentBright: mix(accentBright, other.accentBright),
+      accentSoft: mix(accentSoft, other.accentSoft),
+      peach: mix(peach, other.peach),
+      peachTint: mix(peachTint, other.peachTint),
+      peachText: mix(peachText, other.peachText),
+      low: mix(low, other.low),
+      success: mix(success, other.success),
+      successTint: mix(successTint, other.successTint),
+      successBorder: mix(successBorder, other.successBorder),
+      danger: mix(danger, other.danger),
+      amber: mix(amber, other.amber),
+      dockTop: mix(dockTop, other.dockTop),
+      dockBottom: mix(dockBottom, other.dockBottom),
+      shadow: mix(shadow, other.shadow),
+    );
+  }
 }
 
-/// Soft, slate-tinted shadows used by cards and floating controls.
-abstract final class AppShadows {
-  static const sm = [
-    BoxShadow(color: Color(0x0D000000), blurRadius: 2, offset: Offset(0, 1)),
-  ];
+/// Brand colours that don't change with the theme.
+abstract final class AppColors {
+  static const orange = Color(0xFFFF6B00);
 
-  static const md = [
-    BoxShadow(
-      color: Color(0x14000000),
-      blurRadius: 6,
-      spreadRadius: -1,
-      offset: Offset(0, 4),
-    ),
-  ];
-
-  static const card = [
-    BoxShadow(color: Color(0x080F172A), blurRadius: 12, offset: Offset(0, 2)),
-  ];
-
-  static const header = [
-    BoxShadow(color: Color(0x08000000), blurRadius: 8, offset: Offset(0, 1)),
-  ];
-
-  static const fab = [
-    BoxShadow(
-      color: Color(0x596366F1),
-      blurRadius: 24,
-      spreadRadius: -6,
-      offset: Offset(0, 12),
-    ),
-  ];
-
-  static const button = [
-    BoxShadow(
-      color: Color(0x404648D4),
-      blurRadius: 15,
-      spreadRadius: -3,
-      offset: Offset(0, 10),
-    ),
-  ];
+  /// The app icon tile: bright orange at the top left, deeper at the bottom
+  /// right.
+  static const logoGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0xFFFF8A1F), Color(0xFFFF6B00), Color(0xFFE84F00)],
+  );
 }

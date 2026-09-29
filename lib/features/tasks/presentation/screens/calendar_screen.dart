@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
-import '../../../../core/routing/route_guard.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/date_time_utils.dart';
 import '../../../../shared/widgets/app_header.dart';
@@ -39,22 +37,22 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
+    final text = context.text;
     final state = ref.watch(taskListProvider);
     final selected = ref.watch(calendarDayProvider);
     final dayTasks = state.tasksOn(selected);
-    final colors = context.colors;
-    final text = context.text;
 
     return Column(
       children: [
-        const AppHeader(subtitle: 'Calendar View'),
+        const AppHeader(subtitle: 'Calendar'),
         Expanded(
           child: ListView(
             padding: EdgeInsets.fromLTRB(
               20,
-              16,
               20,
-              dockClearance(context) + 72,
+              20,
+              dockClearance(context),
             ),
             children: [
               Row(
@@ -69,23 +67,27 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 10),
                         Pressable(
                           onTap: _goToday,
+                          semanticLabel: 'Go to today',
                           child: Container(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 12,
-                              vertical: 4,
+                              vertical: 5,
                             ),
                             decoration: BoxDecoration(
-                              color: colors.surfaceContainerHigh,
+                              color: p.accent.withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(999),
-                              boxShadow: context.isDark ? null : AppShadows.sm,
+                              border: Border.all(
+                                color: p.accent.withValues(alpha: 0.3),
+                              ),
                             ),
                             child: Text(
                               'Today',
-                              style: text.labelMedium?.copyWith(
-                                color: colors.primary,
+                              style: text.labelSmall?.copyWith(
+                                color: p.accent,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                           ),
@@ -97,9 +99,9 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                   Container(
                     padding: const EdgeInsets.all(4),
                     decoration: BoxDecoration(
-                      color: colors.surfaceContainerLow,
+                      color: p.card,
                       borderRadius: BorderRadius.circular(999),
-                      boxShadow: context.isDark ? null : AppShadows.sm,
+                      border: Border.all(color: p.border),
                     ),
                     child: Row(
                       children: [
@@ -119,7 +121,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
               GestureDetector(
                 onHorizontalDragEnd: (details) {
                   final v = details.primaryVelocity ?? 0;
@@ -135,25 +137,19 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
               ),
               const SizedBox(height: 24),
               _DayHeader(day: selected, tasks: dayTasks),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
               if (dayTasks.isEmpty)
-                EmptyState(
+                const EmptyState(
                   icon: Icons.event_available_outlined,
                   title: 'Nothing planned',
                   message: 'This day is free. Add a task to give it focus.',
-                  action: TextButton.icon(
-                    onPressed: () =>
-                        context.push(AppRoutes.addTaskOn(selected)),
-                    icon: const Icon(Icons.add_rounded),
-                    label: const Text('Add a task'),
-                  ),
                 )
               else
                 for (final task in dayTasks)
                   Padding(
                     key: ValueKey(task.id),
                     padding: const EdgeInsets.only(bottom: 12),
-                    child: _CalendarTaskTile(task: task),
+                    child: TaskCard(task: task),
                   ),
             ],
           ),
@@ -181,10 +177,11 @@ class _RoundIcon extends StatelessWidget {
       child: Pressable(
         onTap: onTap,
         scale: 0.9,
+        semanticLabel: tooltip,
         child: SizedBox(
           width: 32,
           height: 32,
-          child: Icon(icon, size: 22, color: context.colors.onSurfaceVariant),
+          child: Icon(icon, size: 22, color: context.palette.textSecondary),
         ),
       ),
     );
@@ -206,7 +203,7 @@ class _MonthGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
+    final p = context.palette;
     final first = DateTime(month.year, month.month);
     final leading = first.weekday % 7; // Sunday first
     final days = daysInMonth(month.year, month.month);
@@ -220,21 +217,8 @@ class _MonthGrid extends StatelessWidget {
       }
     }
 
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: colors.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: context.isDark
-            ? null
-            : const [
-                BoxShadow(
-                  color: Color(0x080F172A),
-                  blurRadius: 20,
-                  offset: Offset(0, 4),
-                ),
-              ],
-      ),
+    return Panel(
+      padding: const EdgeInsets.fromLTRB(10, 12, 10, 12),
       child: Column(
         children: [
           Row(
@@ -247,17 +231,17 @@ class _MonthGrid extends StatelessWidget {
                       d,
                       textAlign: TextAlign.center,
                       style: context.text.labelSmall?.copyWith(
-                        color: colors.onSurfaceVariant.withValues(alpha: 0.7),
+                        color: p.textMuted,
                       ),
                     ),
                   ),
                 ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           for (var row = 0; row < cells ~/ 7; row++)
             Padding(
-              padding: EdgeInsets.only(bottom: row == cells ~/ 7 - 1 ? 0 : 8),
+              padding: EdgeInsets.only(bottom: row == cells ~/ 7 - 1 ? 0 : 6),
               child: Row(
                 children: [
                   for (var col = 0; col < 7; col++)
@@ -290,18 +274,16 @@ class _MonthGrid extends StatelessWidget {
     Map<int, List<Task>> byDay,
     DateTime today,
   ) {
-    final colors = context.colors;
+    final p = context.palette;
     final text = context.text;
 
     if (day.month != month.month) {
       return SizedBox(
-        height: 40,
+        height: 42,
         child: Center(
           child: Text(
             '${day.day}',
-            style: text.labelMedium?.copyWith(
-              color: colors.onSurfaceVariant.withValues(alpha: 0.25),
-            ),
+            style: text.labelMedium?.copyWith(color: p.textFaint),
           ),
         ),
       );
@@ -317,15 +299,10 @@ class _MonthGrid extends StatelessWidget {
 
     Color dotColor(Task t) {
       if (isSelected) {
-        if (t.isCompleted) return colors.primaryFixedDim;
-        return switch (t.priority) {
-          TaskPriority.high => colors.errorContainer,
-          TaskPriority.medium => colors.tertiaryFixed,
-          TaskPriority.low => colors.secondaryFixed,
-        };
+        return Colors.white.withValues(alpha: t.isCompleted ? 0.45 : 0.95);
       }
-      if (t.isCompleted) return colors.outlineVariant;
-      return priorityAccent(colors, t.priority);
+      if (t.isCompleted) return p.textFaint;
+      return priorityAccent(p, t.priority);
     }
 
     final label = DateFormat('EEEE, MMMM d').format(day);
@@ -339,57 +316,50 @@ class _MonthGrid extends StatelessWidget {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () => onSelect(day),
-        child: AnimatedScale(
+        child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
-          scale: isSelected ? 1.05 : 1,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            height: 40,
-            decoration: BoxDecoration(
-              color: isSelected ? colors.primary : Colors.transparent,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: isSelected && !context.isDark
-                  ? const [
-                      BoxShadow(
-                        color: Color(0x734648D4),
-                        blurRadius: 14,
-                        spreadRadius: -2,
-                        offset: Offset(0, 4),
-                      ),
-                    ]
-                  : null,
+          height: 42,
+          decoration: BoxDecoration(
+            color: isSelected ? p.accent : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isToday && !isSelected
+                  ? p.accent.withValues(alpha: 0.5)
+                  : Colors.transparent,
             ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  '${day.day}',
-                  style: isSelected
-                      ? text.headlineSmall?.copyWith(
-                          color: colors.onPrimary,
-                          fontWeight: FontWeight.w700,
-                          height: 1,
-                        )
-                      : text.labelMedium?.copyWith(
-                          color: isToday ? colors.primary : colors.onSurface,
-                          fontWeight: isToday ? FontWeight.w800 : null,
-                        ),
+            boxShadow: null,
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                '${day.day}',
+                style: text.labelMedium?.copyWith(
+                  height: 1.1,
+                  color: isSelected
+                      ? Colors.white
+                      : isToday
+                      ? p.accent
+                      : p.text,
+                  fontWeight: isSelected || isToday
+                      ? FontWeight.w700
+                      : FontWeight.w500,
                 ),
-                if (dayTasks.isNotEmpty) ...[
-                  const SizedBox(height: 2),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      for (final t in dayTasks.take(3))
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 1),
-                          child: Dot(color: dotColor(t), size: 4),
-                        ),
-                    ],
-                  ),
-                ],
+              ),
+              if (dayTasks.isNotEmpty) ...[
+                const SizedBox(height: 3),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final t in dayTasks.take(3))
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 1),
+                        child: Dot(color: dotColor(t), size: 4),
+                      ),
+                  ],
+                ),
               ],
-            ),
+            ],
           ),
         ),
       ),
@@ -405,7 +375,7 @@ class _DayHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
+    final p = context.palette;
     final text = context.text;
     final now = DateTime.now();
     final diff = daysBetween(now, day);
@@ -437,13 +407,11 @@ class _DayHeader extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              Dot(color: colors.outlineVariant, size: 6),
+              Dot(color: p.textFaint, size: 5),
               const SizedBox(width: 8),
               Text(
                 DateFormat('MMM d').format(day),
-                style: text.bodyMedium?.copyWith(
-                  color: colors.onSurfaceVariant,
-                ),
+                style: text.bodyMedium?.copyWith(color: p.textSecondary),
               ),
             ],
           ),
@@ -451,202 +419,10 @@ class _DayHeader extends StatelessWidget {
         const SizedBox(width: 8),
         Pill(
           label: badge,
-          background: colors.primaryFixed,
-          foreground: colors.onPrimaryFixed,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-        ),
-      ],
-    );
-  }
-}
-
-class _CalendarTaskTile extends ConsumerWidget {
-  final Task task;
-
-  const _CalendarTaskTile({required this.task});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final colors = context.colors;
-    final text = context.text;
-    final done = task.isCompleted;
-    final id = task.id;
-
-    final (pillBg, pillFg) = switch (task.priority) {
-      TaskPriority.high => (colors.errorContainer, colors.onErrorContainer),
-      TaskPriority.medium => (
-        colors.tertiaryFixed,
-        colors.onTertiaryFixedVariant,
-      ),
-      TaskPriority.low => (
-        colors.secondaryContainer,
-        colors.onSecondaryContainer,
-      ),
-    };
-    final accent = switch (task.priority) {
-      TaskPriority.high => colors.error,
-      TaskPriority.medium => colors.tertiaryFixedDim,
-      TaskPriority.low => colors.secondary,
-    };
-
-    return AnimatedOpacity(
-      duration: const Duration(milliseconds: 200),
-      opacity: done ? 0.75 : 1,
-      child: Container(
-        decoration: BoxDecoration(
-          color: colors.surfaceContainerLowest,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: context.isDark ? null : AppShadows.card,
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Material(
-          type: MaterialType.transparency,
-          child: InkWell(
-            onTap: id == null ? null : () => context.push(AppRoutes.task(id)),
-            child: Stack(
-              children: [
-                Positioned(
-                  left: 0,
-                  top: 12,
-                  bottom: 12,
-                  child: Container(
-                    width: 4,
-                    decoration: BoxDecoration(
-                      color: done ? colors.secondary : accent,
-                      borderRadius: const BorderRadius.horizontal(
-                        right: Radius.circular(4),
-                      ),
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 12, 16, 16),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      TaskCheckbox(
-                        checked: done,
-                        size: 22,
-                        uncheckedColor: colors.surfaceContainerHigh,
-                        onTap: () => toggleTaskDone(context, ref, task),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Opacity(
-                                      opacity: done ? 0.4 : 1,
-                                      child: Text(
-                                        task.title,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: text.headlineSmall?.copyWith(
-                                          decoration: done
-                                              ? TextDecoration.lineThrough
-                                              : null,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Pill(
-                                    label: task.priority.label,
-                                    background: pillBg,
-                                    foreground: pillFg,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 2,
-                                    ),
-                                    style: text.labelSmall?.copyWith(
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 4),
-                              Wrap(
-                                spacing: 12,
-                                runSpacing: 4,
-                                crossAxisAlignment: WrapCrossAlignment.center,
-                                children: [
-                                  _Meta(
-                                    leading: Icon(
-                                      Icons.schedule_rounded,
-                                      size: 15,
-                                      color: colors.onSurfaceVariant,
-                                    ),
-                                    label: task.isAllDay
-                                        ? 'All day'
-                                        : DateFormat(
-                                            'hh:mm a',
-                                          ).format(task.deadline),
-                                  ),
-                                  if (task.category.isNotEmpty)
-                                    _Meta(
-                                      leading: Dot(
-                                        color: categoryDotColor(
-                                          colors,
-                                          task.category,
-                                        ),
-                                        size: 6,
-                                      ),
-                                      label: task.category,
-                                    ),
-                                  if (task.repeat != RepeatRule.none)
-                                    _Meta(
-                                      leading: Icon(
-                                        Icons.repeat_rounded,
-                                        size: 15,
-                                        color: colors.onSurfaceVariant,
-                                      ),
-                                      label: task.repeat.describe(task.dueDate),
-                                    ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _Meta extends StatelessWidget {
-  final Widget leading;
-  final String label;
-
-  const _Meta({required this.leading, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        leading,
-        const SizedBox(width: 4),
-        Flexible(
-          child: Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: context.text.bodySmall?.copyWith(
-              color: context.colors.onSurfaceVariant,
-            ),
-          ),
+          background: p.accent.withValues(alpha: 0.15),
+          foreground: p.accentSoft,
+          border: p.accent.withValues(alpha: 0.3),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
         ),
       ],
     );

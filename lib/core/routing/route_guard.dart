@@ -25,7 +25,8 @@ abstract final class AppRoutes {
 /// Where the router should send the user, or null to stay put.
 ///
 /// * Until the splash screen has finished, everything goes to the splash.
-/// * Signed-out users can only see login and sign-up.
+/// * Signed-out users can only see the welcome screen (the finished
+///   splash), login and sign-up. Anything else sends them to login.
 /// * Signed-in users never see splash, login or sign-up.
 ///
 /// Kept free of Flutter types so it can be unit tested.
@@ -39,7 +40,7 @@ String? resolveRedirect({
       location == AppRoutes.login || location == AppRoutes.signup;
 
   if (!splashDone) return onSplash ? null : AppRoutes.splash;
-  if (!isLoggedIn) return onAuthPage ? null : AppRoutes.login;
+  if (!isLoggedIn) return onSplash || onAuthPage ? null : AppRoutes.login;
   if (onSplash || onAuthPage) return AppRoutes.home;
   return null;
 }

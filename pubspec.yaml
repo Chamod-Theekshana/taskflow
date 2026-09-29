@@ -1,5 +1,5 @@
 name: taskflow
-description: "TaskFlow - a calm, offline-first task manager."
+description: "TaskFlow - a focused, offline-first task manager."
 publish_to: 'none'
 
 version: 1.0.0+1
@@ -31,24 +31,26 @@ flutter:
   uses-material-design: true
 
   # Bundled so the app looks right offline (no runtime font downloads).
+  # Geist for headings and body copy, JetBrains Mono for labels and numbers
+  # (both SIL Open Font License, see assets/fonts).
   fonts:
-    - family: PlusJakartaSans
+    - family: Geist
       fonts:
-        - asset: assets/fonts/PlusJakartaSans-Medium.ttf
-          weight: 500
-        - asset: assets/fonts/PlusJakartaSans-SemiBold.ttf
-          weight: 600
-        - asset: assets/fonts/PlusJakartaSans-Bold.ttf
-          weight: 700
-        - asset: assets/fonts/PlusJakartaSans-ExtraBold.ttf
-          weight: 800
-    - family: Inter
-      fonts:
-        - asset: assets/fonts/Inter-Regular.ttf
+        - asset: assets/fonts/Geist-Regular.ttf
           weight: 400
-        - asset: assets/fonts/Inter-Medium.ttf
+        - asset: assets/fonts/Geist-Medium.ttf
           weight: 500
-        - asset: assets/fonts/Inter-SemiBold.ttf
+        - asset: assets/fonts/Geist-SemiBold.ttf
           weight: 600
-        - asset: assets/fonts/Inter-Bold.ttf
+        - asset: assets/fonts/Geist-Bold.ttf
+          weight: 700
+    - family: JetBrainsMono
+      fonts:
+        - asset: assets/fonts/JetBrainsMono-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/JetBrainsMono-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/JetBrainsMono-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/JetBrainsMono-Bold.ttf
           weight: 700

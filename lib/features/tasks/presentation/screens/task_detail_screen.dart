@@ -121,18 +121,25 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
     final title = _subtaskController.text.trim();
     final id = task.id;
     if (title.isEmpty || id == null) return;
-    _subtaskController.clear();
-    await _run(() => ref.read(taskListProvider.notifier).addSubtask(id, title));
+    final ok = await _run(
+      () => ref.read(taskListProvider.notifier).addSubtask(id, title),
+    );
+    // Keep what was typed if it couldn't be saved.
+    if (ok && mounted) _subtaskController.clear();
   }
 
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(taskListProvider);
     final task = state.taskById(widget.taskId);
+    final p = context.palette;
 
     if (task == null) {
       if (state.isLoading || _deleting) {
-        return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        return Scaffold(
+          backgroundColor: p.canvas,
+          body: const Center(child: CircularProgressIndicator()),
+        );
       }
       return const NotFoundScreen(
         title: 'Task not found',
@@ -140,34 +147,52 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
       );
     }
 
+    final id = task.id!;
     return Scaffold(
-      backgroundColor: context.colors.surface,
+      backgroundColor: p.canvas,
       body: Column(
         children: [
-          const BackHeader(title: 'Task Details'),
+          BackHeader(
+            title: 'Task Details',
+            actions: [
+              SquareIconButton(
+                icon: Icons.edit_outlined,
+                tooltip: 'Edit task',
+                onTap: () => context.push(AppRoutes.editTask(id)),
+              ),
+              SquareIconButton(
+                icon: Icons.delete_outline_rounded,
+                tooltip: 'Delete task',
+                color: p.danger,
+                onTap: () => _delete(task),
+              ),
+            ],
+          ),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+              padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
               children: [
-                _ActionRow(
-                  onEdit: () => context.push(AppRoutes.editTask(task.id!)),
-                  onDelete: () => _delete(task),
-                ),
-                const SizedBox(height: 8),
                 _Badges(task: task),
-                const SizedBox(height: 12),
-                _DueBanner(task: task, onReschedule: () => _reschedule(task)),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
                 Text(
                   task.title,
-                  style: context.text.displayMedium?.copyWith(height: 1.25),
+                  style: context.text.displayMedium?.copyWith(
+                    height: 1.25,
+                    color: task.isCompleted ? p.textSecondary : p.text,
+                    decoration: task.isCompleted
+                        ? TextDecoration.lineThrough
+                        : null,
+                    decorationColor: p.textSecondary,
+                  ),
                 ),
                 const SizedBox(height: 16),
+                _DueBanner(task: task, onReschedule: () => _reschedule(task)),
+                const SizedBox(height: 12),
                 _Notes(
                   text: task.description,
-                  onTap: () => context.push(AppRoutes.editTask(task.id!)),
+                  onTap: () => context.push(AppRoutes.editTask(id)),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 28),
                 _Subtasks(
                   task: task.copyWith(
                     subtasks: [
@@ -182,7 +207,7 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
                   ),
                   onDelete: _deleteSubtask,
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 28),
                 _Activity(task: task),
               ],
             ),
@@ -197,79 +222,6 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
   }
 }
 
-class _CircleButton extends StatelessWidget {
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onTap;
-  final bool danger;
-
-  const _CircleButton({
-    required this.icon,
-    required this.tooltip,
-    required this.onTap,
-    this.danger = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: colors.surfaceContainerLow,
-        shape: const CircleBorder(),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          splashColor: danger ? colors.errorContainer : null,
-          child: SizedBox(
-            width: 40,
-            height: 40,
-            child: Icon(
-              icon,
-              size: 20,
-              color: danger ? colors.error : colors.onSurface,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ActionRow extends StatelessWidget {
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
-
-  const _ActionRow({required this.onEdit, required this.onDelete});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        _CircleButton(
-          icon: Icons.arrow_back_rounded,
-          tooltip: 'Back',
-          onTap: () => closeScreen(context),
-        ),
-        const Spacer(),
-        _CircleButton(
-          icon: Icons.edit_outlined,
-          tooltip: 'Edit task',
-          onTap: onEdit,
-        ),
-        const SizedBox(width: 4),
-        _CircleButton(
-          icon: Icons.delete_outline_rounded,
-          tooltip: 'Delete task',
-          onTap: onDelete,
-          danger: true,
-        ),
-      ],
-    );
-  }
-}
-
 class _Badges extends StatelessWidget {
   final Task task;
 
@@ -277,58 +229,24 @@ class _Badges extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
-    final label = context.text.labelMedium;
-    const padding = EdgeInsets.symmetric(horizontal: 12, vertical: 5);
-
-    final (bg, fg, dot) = switch (task.priority) {
-      TaskPriority.high => (
-        colors.errorContainer,
-        colors.onErrorContainer,
-        colors.error,
-      ),
-      TaskPriority.medium => (
-        colors.tertiaryFixed,
-        colors.onTertiaryFixed,
-        colors.tertiary,
-      ),
-      TaskPriority.low => (
-        colors.secondaryContainer,
-        colors.onSecondaryContainer,
-        colors.secondary,
-      ),
-    };
-
+    final p = context.palette;
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       children: [
-        Pill(
-          label: '${task.priority.label} Priority',
-          background: bg,
-          foreground: fg,
-          dot: dot,
-          pulseDot: task.priority == TaskPriority.high && !task.isCompleted,
-          style: label,
-          padding: padding,
+        PriorityBadge(
+          priority: task.priority,
+          long: true,
+          pulse: !task.isCompleted,
         ),
-        if (task.category.isNotEmpty)
-          Pill(
-            label: task.category,
-            icon: categoryIcon(task.category),
-            background: colors.primaryFixed,
-            foreground: colors.onPrimaryFixed,
-            style: label,
-            padding: padding,
-          ),
+        if (task.category.isNotEmpty) CategoryTag(category: task.category),
         if (task.repeat != RepeatRule.none)
           Pill(
             label: task.repeat.describe(task.dueDate),
             icon: Icons.repeat_rounded,
-            background: colors.surfaceContainerHigh,
-            foreground: colors.onSurfaceVariant,
-            style: label,
-            padding: padding,
+            background: p.raised,
+            foreground: p.textSecondary,
+            border: p.border,
           ),
       ],
     );
@@ -355,30 +273,22 @@ class _DueBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
+    final p = context.palette;
     final text = context.text;
     final now = DateTime.now();
     final done = task.isCompleted;
     final overdue = task.isOverdue(now);
 
-    final Color tint;
-    final Color iconBg;
-    final Color iconColor;
+    final Color tone;
     final IconData icon;
     if (done) {
-      tint = colors.secondaryContainer.withValues(alpha: 0.3);
-      iconBg = colors.secondaryContainer;
-      iconColor = colors.onSecondaryContainer;
+      tone = p.success;
       icon = Icons.check_circle_outline_rounded;
     } else if (overdue) {
-      tint = colors.errorContainer.withValues(alpha: 0.4);
-      iconBg = colors.errorContainer;
-      iconColor = colors.error;
+      tone = p.danger;
       icon = Icons.history_rounded;
     } else {
-      tint = colors.tertiaryFixed.withValues(alpha: 0.3);
-      iconBg = colors.tertiaryFixed;
-      iconColor = colors.tertiary;
+      tone = p.accent;
       icon = Icons.schedule_rounded;
     }
 
@@ -389,23 +299,12 @@ class _DueBanner extends StatelessWidget {
         ? 'Any time today'
         : relativeDueLabel(task.deadline, now: now);
 
-    return Container(
+    return Panel(
+      radius: 16,
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: tint,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: context.isDark ? null : AppShadows.sm,
-      ),
       child: Row(
         children: [
-          IconTile(
-            icon: icon,
-            background: iconBg,
-            color: iconColor,
-            size: 40,
-            radius: 12,
-            iconSize: 22,
-          ),
+          IconTile(icon: icon, color: tone, size: 42, radius: 14),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -417,15 +316,16 @@ class _DueBanner extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
+                const SizedBox(height: 2),
                 Row(
                   children: [
-                    Dot(color: iconColor, size: 6),
-                    const SizedBox(width: 4),
+                    Dot(color: tone, size: 6),
+                    const SizedBox(width: 6),
                     Flexible(
                       child: Text(
                         subtitle,
                         style: text.bodySmall?.copyWith(
-                          color: colors.onSurfaceVariant,
+                          color: p.textSecondary,
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -439,19 +339,23 @@ class _DueBanner extends StatelessWidget {
             const SizedBox(width: 8),
             Pressable(
               onTap: onReschedule,
+              semanticLabel: 'Reschedule',
               child: Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
-                  vertical: 6,
+                  vertical: 7,
                 ),
                 decoration: BoxDecoration(
-                  color: colors.surfaceContainerLowest,
+                  color: p.accent.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(999),
-                  boxShadow: context.isDark ? null : AppShadows.sm,
+                  border: Border.all(color: p.accent.withValues(alpha: 0.3)),
                 ),
                 child: Text(
                   'Reschedule',
-                  style: text.labelMedium?.copyWith(color: colors.primary),
+                  style: text.labelSmall?.copyWith(
+                    color: p.accent,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ),
@@ -470,47 +374,42 @@ class _Notes extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
+    final p = context.palette;
     final empty = text.trim().isEmpty;
-    return Material(
-      color: colors.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: empty ? onTap : null,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(
-                    Icons.notes_rounded,
-                    size: 16,
-                    color: colors.onSurfaceVariant,
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: empty ? onTap : null,
+      child: Panel(
+        radius: 16,
+        color: p.cardMuted,
+        shadow: false,
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.notes_rounded, size: 16, color: p.warmMuted),
+                const SizedBox(width: 6),
+                Text(
+                  'DESCRIPTION & CONTEXT',
+                  style: context.text.labelSmall?.copyWith(
+                    color: p.warmMuted,
+                    letterSpacing: 1,
                   ),
-                  const SizedBox(width: 4),
-                  Text(
-                    'DESCRIPTION & CONTEXT',
-                    style: context.text.labelMedium?.copyWith(
-                      color: colors.onSurfaceVariant,
-                      letterSpacing: 0.8,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              SelectableText(
-                empty ? 'No notes yet. Tap to add some context.' : text,
-                onTap: empty ? onTap : null,
-                style: context.text.bodyMedium?.copyWith(
-                  height: 1.6,
-                  color: empty ? colors.outline : colors.onSurface,
                 ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            SelectableText(
+              empty ? 'No notes yet. Tap to add some context.' : text,
+              onTap: empty ? onTap : null,
+              style: context.text.bodyMedium?.copyWith(
+                height: 1.6,
+                color: empty ? p.textMuted : p.text,
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -534,7 +433,7 @@ class _Subtasks extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
+    final p = context.palette;
     final text = context.text;
     final total = task.subtasks.length;
     final done = task.completedSubtasks;
@@ -545,42 +444,48 @@ class _Subtasks extends StatelessWidget {
       children: [
         Row(
           children: [
-            Icon(Icons.checklist_rounded, size: 20, color: colors.primary),
-            const SizedBox(width: 4),
+            Icon(Icons.checklist_rounded, size: 20, color: p.accent),
+            const SizedBox(width: 6),
             Text('Subtasks', style: text.headlineMedium),
-            const SizedBox(width: 4),
+            const SizedBox(width: 6),
             Expanded(
               child: Text(
-                '($done/$total completed)',
-                style: text.labelMedium?.copyWith(
-                  color: colors.onSurfaceVariant,
-                  fontWeight: FontWeight.w500,
-                ),
+                '$done/$total done',
+                style: text.labelSmall?.copyWith(color: p.textSecondary),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
             Text(
               '${(progress * 100).round()}%',
-              style: text.labelMedium?.copyWith(color: colors.primary),
+              style: text.labelMedium?.copyWith(color: p.accent),
             ),
           ],
         ),
-        const SizedBox(height: 6),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(999),
+        const SizedBox(height: 10),
+        Container(
+          height: 8,
+          decoration: BoxDecoration(
+            color: p.track,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          alignment: Alignment.centerLeft,
           child: TweenAnimationBuilder<double>(
             tween: Tween(begin: 0, end: progress),
             duration: const Duration(milliseconds: 300),
             curve: Curves.easeOut,
-            builder: (context, value, _) => LinearProgressIndicator(
-              value: value,
-              minHeight: 8,
-              color: colors.primary,
-              backgroundColor: colors.surfaceContainerHigh,
+            builder: (context, value, _) => FractionallySizedBox(
+              widthFactor: value,
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: p.accentGradient,
+                  borderRadius: BorderRadius.circular(999),
+                  boxShadow: value > 0 ? null : null,
+                ),
+              ),
             ),
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 14),
         for (final subtask in task.subtasks)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
@@ -592,13 +497,11 @@ class _Subtasks extends StatelessWidget {
                 alignment: Alignment.centerRight,
                 padding: const EdgeInsets.only(right: 20),
                 decoration: BoxDecoration(
-                  color: colors.errorContainer,
-                  borderRadius: BorderRadius.circular(16),
+                  color: p.danger.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: p.danger.withValues(alpha: 0.3)),
                 ),
-                child: Icon(
-                  Icons.delete_outline_rounded,
-                  color: colors.onErrorContainer,
-                ),
+                child: Icon(Icons.delete_outline_rounded, color: p.danger),
               ),
               child: _SubtaskRow(
                 subtask: subtask,
@@ -611,28 +514,26 @@ class _Subtasks extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 8, left: 4),
             child: Text(
               'Swipe a step to the left to remove it.',
-              style: text.labelSmall?.copyWith(color: colors.outline),
+              style: text.labelSmall?.copyWith(color: p.textMuted),
             ),
           ),
         const SizedBox(height: 4),
         Row(
           children: [
             Expanded(
-              child: SizedBox(
-                height: 48,
-                child: TextField(
-                  controller: controller,
-                  textInputAction: TextInputAction.done,
-                  textCapitalization: TextCapitalization.sentences,
-                  onSubmitted: (_) => onAdd(),
-                  style: text.bodyMedium,
-                  decoration: InputDecoration(
-                    hintText: 'Add a new subtask...',
-                    hintStyle: text.bodyMedium?.copyWith(
-                      color: colors.onSurfaceVariant,
-                    ),
-                    fillColor: colors.surfaceContainerLow,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+              child: TextField(
+                controller: controller,
+                textInputAction: TextInputAction.done,
+                textCapitalization: TextCapitalization.sentences,
+                onSubmitted: (_) => onAdd(),
+                style: text.bodyMedium,
+                decoration: InputDecoration(
+                  hintText: 'Add a new subtask...',
+                  fillColor: p.card,
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 14,
                   ),
                 ),
               ),
@@ -645,22 +546,17 @@ class _Subtasks extends StatelessWidget {
                 height: 48,
                 padding: const EdgeInsets.symmetric(horizontal: 14),
                 decoration: BoxDecoration(
-                  color: colors.primaryFixed,
-                  borderRadius: BorderRadius.circular(16),
+                  color: p.accent.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: p.accent.withValues(alpha: 0.3)),
                 ),
                 child: Row(
                   children: [
-                    Icon(
-                      Icons.add_rounded,
-                      size: 18,
-                      color: colors.onPrimaryFixed,
-                    ),
+                    Icon(Icons.add_rounded, size: 18, color: p.accent),
                     const SizedBox(width: 4),
                     Text(
                       'Add',
-                      style: text.labelMedium?.copyWith(
-                        color: colors.onPrimaryFixed,
-                      ),
+                      style: text.labelMedium?.copyWith(color: p.accent),
                     ),
                   ],
                 ),
@@ -681,18 +577,18 @@ class _SubtaskRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
+    final p = context.palette;
     final done = subtask.isCompleted;
     return Container(
       decoration: BoxDecoration(
-        color: colors.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: context.isDark ? null : AppShadows.sm,
+        color: p.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: p.border),
       ),
       child: Material(
         type: MaterialType.transparency,
         child: InkWell(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
           onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.all(12),
@@ -700,19 +596,18 @@ class _SubtaskRow extends StatelessWidget {
               children: [
                 AnimatedContainer(
                   duration: const Duration(milliseconds: 180),
-                  width: 24,
-                  height: 24,
+                  width: 22,
+                  height: 22,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: done
-                        ? colors.secondary
-                        : colors.surfaceContainerHighest,
+                    color: done ? p.accent : p.well,
+                    border: Border.all(color: done ? p.accent : p.border),
                   ),
                   child: done
-                      ? Icon(
+                      ? const Icon(
                           Icons.check_rounded,
-                          size: 16,
-                          color: colors.onSecondary,
+                          size: 15,
+                          color: Colors.white,
                         )
                       : null,
                 ),
@@ -720,11 +615,12 @@ class _SubtaskRow extends StatelessWidget {
                 Expanded(
                   child: AnimatedOpacity(
                     duration: const Duration(milliseconds: 180),
-                    opacity: done ? 0.45 : 1,
+                    opacity: done ? 0.5 : 1,
                     child: Text(
                       subtask.title,
                       style: context.text.bodyMedium?.copyWith(
                         decoration: done ? TextDecoration.lineThrough : null,
+                        decorationColor: p.textSecondary,
                       ),
                     ),
                   ),
@@ -745,25 +641,24 @@ class _Activity extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final colors = context.colors;
-    final style = context.text.bodySmall?.copyWith(
-      color: colors.onSurfaceVariant,
-    );
+    final p = context.palette;
+    final style = context.text.bodySmall?.copyWith(color: p.textSecondary);
     final name = ref.watch(authProvider.select((a) => a.value?.firstName));
 
     Widget line(IconData icon, InlineSpan span) => Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
+      padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
         children: [
-          Icon(icon, size: 16, color: colors.onSurfaceVariant),
-          const SizedBox(width: 8),
+          Icon(icon, size: 16, color: p.textMuted),
+          const SizedBox(width: 10),
           Expanded(child: Text.rich(span, style: style)),
         ],
       ),
     );
 
-    return SurfaceCard(
+    return Panel(
       radius: 16,
+      shadow: false,
       padding: const EdgeInsets.all(12),
       child: Column(
         children: [
@@ -778,7 +673,7 @@ class _Activity extends ConsumerWidget {
                     text: name,
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
-                      color: colors.onSurface,
+                      color: p.text,
                     ),
                   ),
                 ],
@@ -814,29 +709,74 @@ class _CompleteBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
+    final p = context.palette;
     return Container(
-      color: colors.surface.withValues(alpha: 0.94),
+      decoration: BoxDecoration(
+        color: p.canvas,
+        border: Border(top: BorderSide(color: p.border.withValues(alpha: 0.6))),
+      ),
       padding: EdgeInsets.fromLTRB(
-        20,
+        16,
         12,
-        20,
+        16,
         12 + MediaQuery.paddingOf(context).bottom,
       ),
       child: Center(
         heightFactor: 1,
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 448),
-          child: PrimaryButton(
-            label: done ? 'Completed · Reopen Task' : 'Mark as Complete',
-            icon: done ? Icons.restart_alt_rounded : Icons.check_circle_outline,
-            iconAfter: false,
-            height: 56,
-            radius: 999,
-            color: done ? colors.surfaceContainerHighest : colors.secondary,
-            foreground: done ? colors.onSurface : colors.onSecondary,
-            onPressed: onPressed,
-          ),
+          child: done
+              ? _ReopenButton(onPressed: onPressed)
+              : PrimaryButton(
+                  label: 'Mark as Complete',
+                  icon: Icons.check_circle_outline_rounded,
+                  iconAfter: false,
+                  height: 56,
+                  radius: 16,
+                  onPressed: onPressed,
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Full-width dark button shown once the task is done.
+class _ReopenButton extends StatelessWidget {
+  final VoidCallback onPressed;
+
+  const _ReopenButton({required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return Pressable(
+      onTap: onPressed,
+      scale: 0.98,
+      semanticLabel: 'Reopen task',
+      child: Container(
+        height: 56,
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        decoration: BoxDecoration(
+          color: p.card,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: p.border),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.restart_alt_rounded, size: 20, color: p.text),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                'Completed · Reopen Task',
+                style: context.text.titleMedium,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
         ),
       ),
     );

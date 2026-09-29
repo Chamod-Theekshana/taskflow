@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import 'package:go_router/go_router.dart';
+
+import '../../../../core/routing/route_guard.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/date_time_utils.dart';
 import '../../../../shared/widgets/app_header.dart';
@@ -42,31 +45,33 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     return Column(
       children: [
-        const AppHeader(),
+        AppHeader(
+          action: _AddButton(),
+        ),
         Expanded(
           child: RefreshIndicator(
             onRefresh: notifier.refresh,
             child: ListView(
               padding: EdgeInsets.fromLTRB(
                 20,
-                16,
                 20,
-                dockClearance(context) + 72,
+                20,
+                dockClearance(context),
               ),
               children: [
                 _Greeting(tasks: state.tasks, name: name, now: now),
                 const SizedBox(height: 12),
                 _FocusCard(tasks: state.tasks, now: now),
-                const SizedBox(height: 24),
+                const SizedBox(height: 32),
                 AppSearchField(
                   controller: _search,
                   hint: 'Search your tasks, projects or tags...',
                   onChanged: notifier.setSearchQuery,
                   trailing: _RefineButton(active: state.hasRefinements),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 20),
                 _FilterRow(state: state, now: now),
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
                 ..._list(state, visible, name),
               ],
             ),
@@ -103,7 +108,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           state.searchQuery.trim().isNotEmpty || state.hasRefinements;
       final who = (name == null || name.isEmpty) ? '' : ', $name';
       return [
-        const SizedBox(height: 4),
         EmptyState(
           icon: searching ? Icons.search_off_rounded : Icons.spa_outlined,
           title: searching ? 'No matches' : 'Breathe easy$who',
@@ -137,7 +141,7 @@ class _Greeting extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
+    final p = context.palette;
     final text = context.text;
     final pending = tasks.where((t) => !t.isCompleted).length;
     final today = tasks.where((t) => isSameDate(t.dueDate, now)).toList();
@@ -147,6 +151,7 @@ class _Greeting extends StatelessWidget {
               ? 0.0
               : tasks.where((t) => t.isCompleted).length / tasks.length);
     final greeting = greetingFor(now);
+    final who = name;
 
     return Row(
       children: [
@@ -155,7 +160,7 @@ class _Greeting extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                name == null || name!.isEmpty ? greeting : '$greeting, $name',
+                who == null || who.isEmpty ? greeting : '$greeting, $who',
                 style: text.displayMedium,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
@@ -163,15 +168,13 @@ class _Greeting extends StatelessWidget {
               const SizedBox(height: 2),
               Row(
                 children: [
-                  Dot(color: colors.secondary),
+                  Dot(color: p.accent, glow: true),
                   const SizedBox(width: 6),
                   Flexible(
                     child: Text(
                       '${DateFormat('EEEE, MMM d').format(now)} • '
                       '${plural(pending, 'task')} pending',
-                      style: text.bodySmall?.copyWith(
-                        color: colors.onSurfaceVariant,
-                      ),
+                      style: text.bodySmall?.copyWith(color: p.textSecondary),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -184,24 +187,26 @@ class _Greeting extends StatelessWidget {
         Tooltip(
           message: today.isNotEmpty ? "Today's progress" : 'Overall progress',
           child: Container(
-            width: 48,
-            height: 48,
+            width: 50,
+            height: 50,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: colors.surfaceContainerLow,
+              color: p.card,
               shape: BoxShape.circle,
-              boxShadow: context.isDark ? null : AppShadows.sm,
+              border: Border.all(color: p.border),
+              boxShadow: p.cardShadow,
             ),
             child: ProgressRing(
               progress: progress,
               size: 40,
               strokeWidth: 3.4,
-              color: colors.primary,
-              trackColor: colors.surfaceContainerHighest,
+              color: p.accent,
+              trackColor: p.track,
               child: Text(
                 '${(progress * 100).round()}%',
                 style: text.labelSmall?.copyWith(
-                  color: colors.primary,
+                  color: p.accent,
+                  fontSize: 10,
                   fontWeight: FontWeight.w600,
                   letterSpacing: 0,
                 ),
@@ -214,7 +219,7 @@ class _Greeting extends StatelessWidget {
   }
 }
 
-/// One line of calm guidance based on what's actually on the list.
+/// One line of guidance based on what's actually on the list.
 class _FocusCard extends StatelessWidget {
   final List<Task> tasks;
   final DateTime now;
@@ -253,7 +258,7 @@ class _FocusCard extends StatelessWidget {
           : 'before ${shortTime(urgent.last.deadline)}';
       return (
         'Calm Focus State',
-        '$n high-priority ${n == 1 ? 'item needs' : 'items need'} '
+        '$n high-priority ${n == 1 ? 'item requires' : 'items require'} '
             'attention $by',
         Icons.wb_sunny_outlined,
       );
@@ -281,36 +286,45 @@ class _FocusCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
+    final p = context.palette;
     final (title, body, icon) = _message();
-    return Container(
+    return Panel(
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: colors.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: context.isDark ? null : AppShadows.sm,
-      ),
+      radius: 16,
       child: Row(
         children: [
           Container(
-            width: 32,
-            height: 32,
+            width: 34,
+            height: 34,
             decoration: BoxDecoration(
-              color: colors.primaryFixed,
+              color: p.accent.withValues(alpha: 0.15),
               shape: BoxShape.circle,
+              border: Border.all(color: p.accent.withValues(alpha: 0.3)),
+              boxShadow: [
+                BoxShadow(
+                  color: p.accent.withValues(alpha: 0.2),
+                  blurRadius: 10,
+                ),
+              ],
             ),
-            child: Icon(icon, size: 18, color: colors.primary),
+            child: Icon(icon, size: 18, color: p.accent),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: context.text.labelMedium),
+                Text(
+                  title,
+                  style: context.text.labelMedium?.copyWith(
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 2),
                 Text(
                   body,
                   style: context.text.bodySmall?.copyWith(
-                    color: colors.onSurfaceVariant,
+                    color: p.textSecondary,
                   ),
                 ),
               ],
@@ -320,9 +334,31 @@ class _FocusCard extends StatelessWidget {
           Icon(
             Icons.auto_awesome_outlined,
             size: 20,
-            color: colors.outlineVariant,
+            color: p.accent.withValues(alpha: 0.8),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _AddButton extends StatelessWidget {
+  const _AddButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Pressable(
+      semanticLabel: 'Add task',
+      onTap: () => context.push(AppRoutes.addTask),
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: context.palette.accent,
+          shape: BoxShape.circle,
+          boxShadow: context.palette.glow(),
+        ),
+        child: const Icon(Icons.add_rounded, size: 22, color: Colors.white),
       ),
     );
   }
@@ -335,7 +371,7 @@ class _RefineButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
+    final p = context.palette;
     return IconButton(
       tooltip: 'Sort and filter',
       visualDensity: VisualDensity.compact,
@@ -343,11 +379,11 @@ class _RefineButton extends StatelessWidget {
       icon: Badge(
         isLabelVisible: active,
         smallSize: 7,
-        backgroundColor: colors.primary,
+        backgroundColor: p.accent,
         child: Icon(
           Icons.tune_rounded,
           size: 20,
-          color: active ? colors.primary : colors.onSurfaceVariant,
+          color: active ? p.accent : p.textSecondary,
         ),
       ),
     );
@@ -377,11 +413,11 @@ class _FilterRow extends ConsumerWidget {
           for (final filter in TaskFilter.values)
             Padding(
               padding: const EdgeInsets.only(right: 8),
-              child: ChoicePill(
+              child: FilterPill(
                 label: _labels[filter]!,
                 count: '${state.countFor(filter, now)}',
+                accentCount: filter == TaskFilter.completed,
                 selected: state.filter == filter,
-                strong: true,
                 onTap: () =>
                     ref.read(taskListProvider.notifier).setFilter(filter),
               ),

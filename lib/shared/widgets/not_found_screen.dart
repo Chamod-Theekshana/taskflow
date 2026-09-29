@@ -19,18 +19,21 @@ class NotFoundScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: context.palette.canvas,
       body: SafeArea(
         child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
             child: EmptyState(
               icon: Icons.explore_off_rounded,
               title: title,
               message: message,
               action: SizedBox(
-                width: 200,
+                width: 220,
                 child: PrimaryButton(
                   label: 'Back to tasks',
+                  icon: Icons.arrow_forward_rounded,
+                  height: 48,
                   onPressed: () => context.go(AppRoutes.home),
                 ),
               ),
@@ -38,7 +41,6 @@ class NotFoundScreen extends StatelessWidget {
           ),
         ),
       ),
-      backgroundColor: context.colors.surface,
     );
   }
 }

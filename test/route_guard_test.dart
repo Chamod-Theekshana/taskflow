@@ -20,14 +20,15 @@ void main() {
     );
   });
 
-  test('signed-out users leave the splash for login', () {
-    expect(redirect(at: AppRoutes.splash), AppRoutes.login);
+  test('signed-out users stay on the finished splash (the welcome page)', () {
+    expect(redirect(at: AppRoutes.splash), isNull);
   });
 
-  test('signed-out users can only use login and sign-up', () {
+  test('signed-out users can only use welcome, login and sign-up', () {
     expect(redirect(at: AppRoutes.login), isNull);
     expect(redirect(at: AppRoutes.signup), isNull);
     expect(redirect(at: AppRoutes.home), AppRoutes.login);
+    expect(redirect(at: AppRoutes.profile), AppRoutes.login);
     expect(redirect(at: '/task/3'), AppRoutes.login);
   });
 

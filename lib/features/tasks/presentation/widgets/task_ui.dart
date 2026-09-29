@@ -22,27 +22,28 @@ IconData categoryIcon(String category) {
   };
 }
 
-/// Accent for the category chip icon on the add / edit screen.
-Color categoryTint(ColorScheme colors, String category) {
+/// Accent for the category chip icons on the add / edit screen.
+Color categoryTint(AppPalette p, String category) {
   return switch (category.trim().toLowerCase()) {
-    'work' => colors.primary,
-    'personal' || 'health' => colors.secondary,
-    'shopping' => colors.tertiary,
-    _ => colors.primary,
+    'work' => p.accent,
+    'personal' => p.accentSoft,
+    'health' => p.success,
+    'shopping' => p.amber,
+    _ => p.peach,
   };
 }
 
-/// Stable colour for a category's dot on the calendar and in stats.
-Color categoryDotColor(ColorScheme colors, String category) {
+/// Stable colour for a category in charts and on the calendar.
+Color categoryDotColor(AppPalette p, String category) {
   final palette = [
-    colors.primary,
-    colors.tertiaryContainer,
-    colors.secondary,
-    colors.primaryContainer,
-    colors.error,
+    p.accent,
+    const Color(0xFFFB923C),
+    p.success,
+    p.amber,
+    p.peach,
   ];
   final key = category.trim().toLowerCase();
-  if (key.isEmpty) return colors.outline;
+  if (key.isEmpty) return p.textMuted;
   var hash = 0;
   for (final unit in key.codeUnits) {
     hash = (hash * 31 + unit) & 0x7fffffff;
@@ -50,44 +51,54 @@ Color categoryDotColor(ColorScheme colors, String category) {
   return palette[hash % palette.length];
 }
 
-/// The vertical strip on the left of task cards.
-Color priorityAccent(ColorScheme colors, TaskPriority priority) {
+/// The strip on the left of task cards and the priority dots: orange for
+/// high, peach for medium, slate for low.
+Color priorityAccent(AppPalette p, TaskPriority priority) {
   return switch (priority) {
-    TaskPriority.high => colors.error,
-    TaskPriority.medium => colors.tertiary,
-    TaskPriority.low => colors.secondary,
+    TaskPriority.high => p.accent,
+    TaskPriority.medium => p.peach,
+    TaskPriority.low => p.low,
   };
 }
 
-/// Small coloured badge for a priority, as used on the task cards.
+/// Coloured badge for a priority, as used on the task cards.
 class PriorityBadge extends StatelessWidget {
   final TaskPriority priority;
   final bool long;
+  final bool pulse;
 
-  const PriorityBadge({super.key, required this.priority, this.long = false});
+  const PriorityBadge({
+    super.key,
+    required this.priority,
+    this.long = false,
+    this.pulse = true,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
+    final p = context.palette;
     return switch (priority) {
       TaskPriority.high => Pill(
         label: long ? 'High Priority' : 'High',
-        background: colors.errorContainer.withValues(alpha: 0.6),
-        foreground: colors.onErrorContainer,
-        dot: colors.error,
-        pulseDot: true,
+        background: p.accent.withValues(alpha: 0.2),
+        foreground: p.accentSoft,
+        border: p.accent.withValues(alpha: 0.3),
+        dot: p.accent,
+        pulseDot: pulse,
       ),
       TaskPriority.medium => Pill(
         label: 'Medium',
-        background: colors.tertiaryFixed,
-        foreground: colors.onTertiaryFixed,
-        dot: colors.tertiaryContainer,
+        background: p.peachTint,
+        foreground: p.peachText,
+        border: p.peach.withValues(alpha: 0.2),
+        dot: p.peach,
       ),
       TaskPriority.low => Pill(
         label: 'Low',
-        background: colors.secondaryContainer.withValues(alpha: 0.6),
-        foreground: colors.onSecondaryContainer,
-        dot: colors.secondary,
+        background: p.raised,
+        foreground: p.textSecondary,
+        border: p.border,
+        dot: p.low,
       ),
     };
   }
@@ -95,19 +106,19 @@ class PriorityBadge extends StatelessWidget {
 
 class CategoryTag extends StatelessWidget {
   final String category;
-  final bool muted;
 
-  const CategoryTag({super.key, required this.category, this.muted = false});
+  const CategoryTag({super.key, required this.category});
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
+    final p = context.palette;
     return Pill(
       label: category,
       icon: categoryIcon(category),
       iconSize: 13,
-      background: muted ? colors.surfaceContainer : colors.surfaceContainerHigh,
-      foreground: muted ? colors.outline : colors.onSurfaceVariant,
+      background: p.raised,
+      foreground: p.textSecondary,
+      border: p.border,
     );
   }
 }
@@ -132,6 +143,8 @@ String dueText(Task task, {DateTime? now}) {
   return time == null ? day : '$day, $time';
 }
 
+/// Due date badge: orange when a high-priority task is due today, rose when
+/// overdue, neutral otherwise.
 class DueBadge extends StatelessWidget {
   final Task task;
 
@@ -139,34 +152,56 @@ class DueBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
+    final p = context.palette;
     final now = DateTime.now();
     final diff = daysBetween(now, task.dueDate);
     final overdue = task.isOverdue(now);
-    final urgent = overdue || (diff == 0 && task.priority == TaskPriority.high);
+    final urgent = diff == 0 && task.priority == TaskPriority.high;
 
-    final icon = switch (diff) {
-      0 when !task.isAllDay => Icons.schedule_rounded,
-      1 => Icons.calendar_today_outlined,
-      _ => Icons.event_outlined,
-    };
+    final icon = overdue
+        ? Icons.history_rounded
+        : switch (diff) {
+            0 => task.isAllDay ? Icons.today_rounded : Icons.schedule_rounded,
+            1 => Icons.calendar_today_outlined,
+            _ => Icons.event_outlined,
+          };
+    final label = overdue
+        ? 'Overdue · ${dueText(task, now: now)}'
+        : dueText(task, now: now);
+
+    final Color bg;
+    final Color fg;
+    final Color border;
+    if (overdue) {
+      bg = p.danger.withValues(alpha: 0.12);
+      fg = p.danger;
+      border = p.danger.withValues(alpha: 0.3);
+    } else if (urgent) {
+      bg = p.accent.withValues(alpha: 0.15);
+      fg = p.accent;
+      border = p.accent.withValues(alpha: 0.3);
+    } else {
+      bg = p.raised;
+      fg = p.textSecondary;
+      border = p.border;
+    }
 
     return Pill(
-      label: overdue ? 'Overdue · ${dueText(task, now: now)}' : dueText(task),
-      icon: overdue ? Icons.history_rounded : icon,
-      background: urgent ? colors.errorContainer : colors.surfaceContainer,
-      foreground: urgent ? colors.onErrorContainer : colors.onSurface,
-      iconColor: urgent ? colors.onErrorContainer : colors.onSurfaceVariant,
+      label: label,
+      icon: icon,
+      background: bg,
+      foreground: fg,
+      border: border,
     );
   }
 }
 
-/// Round completion checkbox with a little pop when ticked.
+/// Round completion checkbox: a dark well that turns solid orange, with a
+/// little pop when ticked.
 class TaskCheckbox extends StatelessWidget {
   final bool checked;
   final VoidCallback? onTap;
   final double size;
-  final Color? uncheckedColor;
   final String? semanticLabel;
 
   const TaskCheckbox({
@@ -174,13 +209,12 @@ class TaskCheckbox extends StatelessWidget {
     required this.checked,
     required this.onTap,
     this.size = 24,
-    this.uncheckedColor,
     this.semanticLabel,
   });
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
+    final p = context.palette;
     return Semantics(
       checked: checked,
       button: true,
@@ -202,21 +236,15 @@ class TaskCheckbox extends StatelessWidget {
               height: size,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: checked
-                    ? colors.secondary
-                    : (uncheckedColor ?? colors.surfaceContainerLowest),
-                border: checked
-                    ? null
-                    : Border.all(
-                        color: colors.outlineVariant.withValues(alpha: 0.7),
-                        width: 1.5,
-                      ),
+                color: checked ? p.accent : p.well,
+                border: Border.all(color: checked ? p.accent : p.border),
+                boxShadow: null,
               ),
               child: checked
                   ? Icon(
                       Icons.check_rounded,
                       size: size * 0.67,
-                      color: colors.onSecondary,
+                      color: Colors.white,
                     )
                   : null,
             ),
@@ -231,26 +259,11 @@ Future<bool> confirmDelete(
   BuildContext context, {
   String title = 'Delete task?',
   String message = "This can't be undone.",
-}) async {
-  final confirmed = await showDialog<bool>(
-    context: context,
-    builder: (dialogContext) => AlertDialog(
-      title: Text(title),
-      content: Text(message),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(dialogContext).pop(false),
-          child: const Text('Cancel'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.of(dialogContext).pop(true),
-          style: TextButton.styleFrom(
-            foregroundColor: Theme.of(dialogContext).colorScheme.error,
-          ),
-          child: const Text('Delete'),
-        ),
-      ],
-    ),
+}) {
+  return confirmAction(
+    context,
+    title: title,
+    message: message,
+    confirmLabel: 'Delete',
   );
-  return confirmed ?? false;
 }

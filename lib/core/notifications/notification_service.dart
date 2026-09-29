@@ -233,7 +233,7 @@ class NotificationService {
     );
   }
 
-  static const _brand = Color(0xFF4648D4);
+  static const _brand = Color(0xFFFF6B00);
 
   static const _reminderDetails = NotificationDetails(
     android: AndroidNotificationDetails(
