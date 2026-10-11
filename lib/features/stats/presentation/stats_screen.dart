@@ -13,6 +13,14 @@ import '../../../shared/widgets/ui.dart';
 import '../../tasks/presentation/providers/task_provider.dart';
 import '../domain/productivity.dart';
 
+/// The report for a period, recomputed only when the tasks change (not on
+/// every rebuild of the screen).
+final statsReportProvider =
+    Provider.family<ProductivityReport, StatsPeriod>((ref, period) {
+      final tasks = ref.watch(taskListProvider.select((s) => s.tasks));
+      return buildReport(tasks, period, DateTime.now());
+    });
+
 class StatsScreen extends ConsumerStatefulWidget {
   const StatsScreen({super.key});
 
@@ -24,9 +32,15 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
   StatsPeriod _period = StatsPeriod.week;
 
   @override
+  void initState() {
+    super.initState();
+    // "Overdue" and the streak depend on the clock too: start fresh.
+    ref.invalidate(statsReportProvider);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final tasks = ref.watch(taskListProvider.select((s) => s.tasks));
-    final report = buildReport(tasks, _period, DateTime.now());
+    final report = ref.watch(statsReportProvider(_period));
 
     return Column(
       children: [
@@ -92,7 +106,6 @@ class _PeriodPicker extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: period == value ? p.accent : null,
                     borderRadius: BorderRadius.circular(999),
-                    boxShadow: period == value ? null : null,
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -138,60 +151,15 @@ class _FlowCard extends StatelessWidget {
     final text = context.text;
     final score = report.flowScore;
 
-    final (Color statusBg, Color statusBorder, Color statusFg) = switch (score) {
-      >= 60 => (p.successTint, p.successBorder, p.success),
-      > 0 => (
-        p.accent.withValues(alpha: 0.12),
-        p.accent.withValues(alpha: 0.3),
-        p.accent,
-      ),
-      _ => (p.raised, p.border, p.textSecondary),
-    };
-
     return Panel(
       child: Column(
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'LIVE STATE',
-                      style: text.labelSmall?.copyWith(
-                        color: p.accent,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 1.2,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text('Productivity Flow', style: text.headlineMedium),
-                  ],
-                ),
-              ),
-              Pill(
-                label: report.flowLabel,
-                background: statusBg,
-                foreground: statusFg,
-                border: statusBorder,
-                dot: statusFg,
-                pulseDot: score > 0,
-                style: text.labelSmall?.copyWith(fontWeight: FontWeight.w600),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 5,
-                ),
-              ),
-            ],
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text('Productivity', style: text.headlineMedium),
           ),
           const SizedBox(height: 20),
-          Tooltip(
-            message:
-                'How much of what was due got done, and how much of it was '
-                'on time.',
-            child: ProgressRing(
+          ProgressRing(
               progress: score / 100,
               size: 144,
               strokeWidth: 12,
@@ -222,7 +190,6 @@ class _FlowCard extends StatelessWidget {
                 ],
               ),
             ),
-          ),
           const SizedBox(height: 20),
           Row(
             children: [
@@ -257,9 +224,7 @@ class _FlowCard extends StatelessWidget {
                   icon: Icons.local_fire_department_outlined,
                   iconColor: p.accent,
                   value: '${report.streak}',
-                  unit: report.streak >= 3
-                      ? 'days 🔥'
-                      : (report.streak == 1 ? 'day' : 'days'),
+                  unit: report.streak == 1 ? 'day' : 'days',
                 ),
               ),
               const SizedBox(width: 10),
@@ -269,7 +234,7 @@ class _FlowCard extends StatelessWidget {
                   icon: Icons.history_rounded,
                   iconColor: p.textSecondary,
                   value: '${report.overdue}',
-                  unit: report.overdue == 0 ? 'all clear' : 'to clear',
+                  unit: report.overdue == 1 ? 'task' : 'tasks',
                 ),
               ),
             ],
@@ -377,16 +342,7 @@ class _WeekdayChart extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Weekly Completion', style: text.headlineMedium),
-                    Text(
-                      'Tasks wrapped up by weekday',
-                      style: text.bodySmall?.copyWith(color: p.textSecondary),
-                    ),
-                  ],
-                ),
+                child: Text('By weekday', style: text.headlineMedium),
               ),
               if (trend != null) ...[
                 const SizedBox(width: 8),
@@ -443,15 +399,6 @@ class _WeekdayChart extends StatelessWidget {
               ],
             ),
           ),
-          if (peak == 0)
-            Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: Text(
-                'Finish a few tasks and your weekly rhythm will show here.',
-                textAlign: TextAlign.center,
-                style: text.bodySmall?.copyWith(color: p.textMuted),
-              ),
-            ),
         ],
       ),
     );
@@ -566,14 +513,10 @@ class _AllocationCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: Text('Time Allocation', style: text.headlineMedium),
+                child: Text('Categories', style: text.headlineMedium),
               ),
               Text(
-                switch (shares.length) {
-                  0 => 'No tasks yet',
-                  1 => '1 Category',
-                  final n => '$n Categories',
-                },
+                shares.isEmpty ? '—' : '${shares.length}',
                 style: text.labelSmall?.copyWith(color: p.textSecondary),
               ),
             ],
@@ -605,11 +548,6 @@ class _AllocationCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          if (shares.isEmpty)
-            Text(
-              'Tasks due in this period will be grouped by category here.',
-              style: text.bodySmall?.copyWith(color: p.textMuted),
-            ),
           for (var i = 0; i < shares.length; i++)
             Padding(
               padding: EdgeInsets.only(bottom: i == shares.length - 1 ? 0 : 12),
@@ -649,18 +587,10 @@ class _AllocationCard extends StatelessWidget {
 
 class _InsightCard extends StatelessWidget {
   final IconData icon;
-  final String eyebrow;
-  final Color eyebrowColor;
   final String title;
-  final String body;
+  final String? body;
 
-  const _InsightCard({
-    required this.icon,
-    required this.eyebrow,
-    required this.eyebrowColor,
-    required this.title,
-    required this.body,
-  });
+  const _InsightCard({required this.icon, required this.title, this.body});
 
   @override
   Widget build(BuildContext context) {
@@ -669,7 +599,7 @@ class _InsightCard extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       shadow: false,
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           IconTile(icon: icon, size: 44, iconSize: 24),
           const SizedBox(width: 14),
@@ -677,23 +607,16 @@ class _InsightCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  eyebrow,
-                  style: text.labelSmall?.copyWith(
-                    color: eyebrowColor,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-                const SizedBox(height: 2),
                 Text(title, style: text.headlineSmall),
-                const SizedBox(height: 4),
-                Text(
-                  body,
-                  style: text.bodySmall?.copyWith(
-                    color: context.palette.textSecondary,
+                if (body != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    body!,
+                    style: text.bodySmall?.copyWith(
+                      color: context.palette.textSecondary,
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
@@ -716,16 +639,10 @@ class _FocusWindowCard extends StatelessWidget {
 
     return _InsightCard(
       icon: Icons.wb_sunny_outlined,
-      eyebrow: 'OPTIMAL WINDOW',
-      eyebrowColor: context.palette.textSecondary,
       title: w == null
-          ? 'Still learning your rhythm'
-          : '${hour(w.startHour)} – ${hour(w.endHour % 24)}',
-      body: w == null
-          ? 'Finish a few more tasks and your best focus hours will show up '
-                'here.'
-          : '${w.count} of the $completed tasks you finished were wrapped up '
-                'in this window.',
+          ? 'Best hours: not enough data'
+          : 'Best hours: ${hour(w.startHour)} – ${hour(w.endHour % 24)}',
+      body: w == null ? null : '${w.count} of $completed done in this window',
     );
   }
 }
@@ -747,13 +664,9 @@ class _MilestoneCard extends StatelessWidget {
       icon: unlocked == null
           ? Icons.flag_outlined
           : Icons.workspace_premium_outlined,
-      eyebrow: unlocked == null ? 'NEXT MILESTONE' : 'ACHIEVEMENT UNLOCKED',
-      eyebrowColor: context.palette.accent,
       title: (unlocked ?? upcoming)!.title,
       body: unlocked != null
-          ? upcoming == null
-                ? unlocked.description
-                : '${unlocked.description} Next up: ${upcoming.title}.'
+          ? (upcoming == null ? null : 'Next: ${upcoming.title}')
           : upcoming!.goal,
     );
   }

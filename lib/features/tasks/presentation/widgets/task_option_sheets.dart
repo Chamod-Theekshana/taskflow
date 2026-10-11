@@ -42,7 +42,6 @@ Future<RepeatRule?> showRepeatSheet(
   return showChoiceSheet<RepeatRule>(
     context,
     title: 'Repeat',
-    subtitle: 'Finishing a repeating task schedules the next one.',
     options: [
       for (final rule in RepeatRule.values)
         (
@@ -62,7 +61,7 @@ Future<String?> promptForTag(BuildContext context) {
   return promptForText(
     context,
     title: 'New tag',
-    hint: 'e.g. Study, Home, Side project',
+    hint: 'Tag name',
     confirmLabel: 'Add',
     maxLength: 24,
     capitalization: TextCapitalization.words,
@@ -149,13 +148,7 @@ class _ManageTagsSheet extends ConsumerWidget {
               padding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
               child: Text('Tags', style: text.headlineMedium),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(4, 0, 4, 12),
-              child: Text(
-                'Removing a tag keeps it on tasks that already use it.',
-                style: text.bodySmall?.copyWith(color: p.textSecondary),
-              ),
-            ),
+            const SizedBox(height: 8),
             for (final name in kBuiltInCategories) row(name),
             for (final name in custom)
               row(

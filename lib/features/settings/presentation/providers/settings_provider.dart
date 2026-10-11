@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/di/providers.dart';
+import '../../../../core/sync/data_change_bus.dart';
 import '../../../tasks/domain/entities/task.dart';
-import '../../data/settings_repository.dart';
+import '../../data/repositories/settings_repository_impl.dart';
+import '../../domain/repositories/settings_repository.dart';
 import '../../domain/settings.dart';
 
 final settingsRepositoryProvider = Provider<SettingsRepository>(
-  (ref) => SettingsRepository(ref.watch(sharedPreferencesProvider)),
+  (ref) => SettingsRepositoryImpl(ref.watch(sharedPreferencesProvider)),
 );
 
 final settingsProvider = NotifierProvider<SettingsController, AppSettings>(
@@ -16,7 +18,18 @@ final settingsProvider = NotifierProvider<SettingsController, AppSettings>(
 
 class SettingsController extends Notifier<AppSettings> {
   @override
-  AppSettings build() => ref.read(settingsRepositoryProvider).load();
+  AppSettings build() {
+    // Settings changed on another device.
+    final pulled = ref
+        .watch(dataChangeBusProvider)
+        .remoteChanges
+        .where((scope) => scope == DataScope.settings)
+        .listen((_) {
+          if (ref.mounted) state = ref.read(settingsRepositoryProvider).load();
+        });
+    ref.onDispose(pulled.cancel);
+    return ref.read(settingsRepositoryProvider).load();
+  }
 
   /// Applies [change] right away and saves it. If saving fails the old
   /// value comes back so the screen never lies about what is stored.
@@ -25,6 +38,7 @@ class SettingsController extends Notifier<AppSettings> {
     state = change(previous);
     try {
       await ref.read(settingsRepositoryProvider).save(state);
+      ref.read(dataChangeBusProvider).localChanged(DataScope.settings);
     } catch (_) {
       if (ref.mounted) state = previous;
     }

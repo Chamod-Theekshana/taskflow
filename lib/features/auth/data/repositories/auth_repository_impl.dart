@@ -1,27 +1,52 @@
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../../../core/error/failures.dart';
+import '../../../../core/storage/token_store.dart';
 import '../../domain/entities/user.dart';
 import '../../domain/repositories/auth_repository.dart';
 import '../datasources/auth_local_data_source.dart';
-import '../models/user_model.dart';
+import '../datasources/auth_remote_data_source.dart';
 
+/// Accounts live on the server; the device keeps the tokens (secure
+/// storage) and a copy of the profile (to start offline).
 class AuthRepositoryImpl implements AuthRepository {
-  final AuthLocalDataSource _dataSource;
-  final SharedPreferences _prefs;
+  AuthRepositoryImpl({
+    required AuthRemoteDataSource remote,
+    required AuthLocalDataSource local,
+    required TokenStore tokens,
+    required String installationId,
+    required Future<String> Function() timeZone,
+  }) : _remote = remote,
+       _local = local,
+       _tokens = tokens,
+       _installationId = installationId,
+       _timeZone = timeZone;
 
-  static const _sessionKey = 'current_user_id';
-
-  AuthRepositoryImpl(this._dataSource, this._prefs);
+  final AuthRemoteDataSource _remote;
+  final AuthLocalDataSource _local;
+  final TokenStore _tokens;
+  final String _installationId;
+  final Future<String> Function() _timeZone;
 
   @override
   Future<User?> getCurrentUser() async {
-    final id = _prefs.getString(_sessionKey);
-    if (id == null) return null;
-    final user = await _dataSource.getUser(id);
-    // The account behind a stored session no longer exists: forget it.
-    if (user == null) await _prefs.remove(_sessionKey);
-    return user;
+    final session = await _tokens.read();
+    if (session == null) {
+      await _local.clear();
+      return null;
+    }
+    final cached = _local.cachedUser();
+    if (cached != null) return cached;
+
+    // Tokens without a cached profile (shouldn't happen): ask the server.
+    try {
+      final user = await _remote.me();
+      await _local.cacheUser(user);
+      return user;
+    } on Failure catch (error) {
+      debugPrint('Could not load the profile: $error');
+      return null;
+    }
   }
 
   @override
@@ -30,17 +55,10 @@ class AuthRepositoryImpl implements AuthRepository {
     String password, {
     bool rememberSession = true,
   }) async {
-    final valid = await _dataSource.verifyPassword(email, password);
-    if (!valid) throw const AuthFailure('Invalid email or password');
-    final user = await _dataSource.getUserByEmail(email);
-    if (user == null) throw const AuthFailure('Invalid email or password');
-
-    if (rememberSession) {
-      await _prefs.setString(_sessionKey, user.id);
-    } else {
-      await _prefs.remove(_sessionKey);
-    }
-    return user;
+    final session = await _remote.login(email.trim(), password);
+    await _tokens.save(session.tokens, persist: rememberSession);
+    await _local.cacheUser(session.user);
+    return session.user;
   }
 
   @override
@@ -49,31 +67,56 @@ class AuthRepositoryImpl implements AuthRepository {
     required String email,
     required String password,
   }) async {
-    final existing = await _dataSource.getUserByEmail(email);
-    if (existing != null) {
-      throw const AuthFailure('An account with this email already exists');
-    }
-    final user = UserModel(
-      id: DateTime.now().microsecondsSinceEpoch.toString(),
-      fullName: fullName,
-      email: email,
+    final session = await _remote.register(
+      fullName: fullName.trim(),
+      email: email.trim(),
+      password: password,
+      timezone: await _timeZone(),
     );
-    final saved = await _dataSource.saveUser(user, password);
-    await _prefs.setString(_sessionKey, saved.id);
-    return saved;
+    await _tokens.save(session.tokens, persist: true);
+    await _local.cacheUser(session.user);
+    return session.user;
   }
 
   @override
   Future<User> updateFullName(String userId, String fullName) async {
     final name = fullName.trim();
     if (name.isEmpty) throw const AuthFailure('Name cannot be empty');
-    final updated = await _dataSource.updateFullName(userId, name);
-    if (updated == null) throw const AuthFailure('Account not found');
-    return updated;
+    final user = await _remote.updateFullName(name);
+    await _local.cacheUser(user);
+    return user;
+  }
+
+  @override
+  Future<User?> refreshProfile() async {
+    try {
+      final user = await _remote.me();
+      await _local.cacheUser(user);
+      return user;
+    } on Failure {
+      return null;
+    }
   }
 
   @override
   Future<void> logout() async {
-    await _prefs.remove(_sessionKey);
+    final refreshToken = await _tokens.refreshToken();
+    if (refreshToken != null) {
+      try {
+        await _remote
+            .logout(refreshToken, _installationId)
+            .timeout(const Duration(seconds: 5));
+      } catch (error) {
+        // Offline: the refresh token simply expires on its own.
+        debugPrint('Server sign-out skipped: $error');
+      }
+    }
+    await clearSession();
+  }
+
+  @override
+  Future<void> clearSession() async {
+    await _tokens.clear();
+    await _local.clear();
   }
 }

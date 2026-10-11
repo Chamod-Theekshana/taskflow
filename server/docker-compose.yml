@@ -1,0 +1,36 @@
+# Local development without Neon: a Postgres 17 container plus the API.
+#   docker compose up --build
+# The API is then on http://localhost:8080 (docs at /docs).
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: taskflow
+      POSTGRES_PASSWORD: taskflow
+      POSTGRES_DB: taskflow
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U taskflow']
+      interval: 5s
+      retries: 10
+
+  api:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgres://taskflow:taskflow@db:5432/taskflow
+      DB_DRIVER: pg
+      JWT_ACCESS_SECRET: local-development-secret-change-me-0123456789
+      LOG_LEVEL: info
+      FIREBASE_SERVICE_ACCOUNT: ${FIREBASE_SERVICE_ACCOUNT:-}
+    ports:
+      - '8080:8080'
+
+volumes:
+  pgdata:

@@ -1,5 +1,5 @@
 name: taskflow
-description: "TaskFlow - a focused, offline-first task manager."
+description: "TaskFlow - a focused, offline-first task manager that syncs across devices."
 publish_to: 'none'
 
 version: 1.0.0+1
@@ -11,9 +11,12 @@ dependencies:
   flutter:
     sdk: flutter
 
-  crypto: ^3.0.7
+  dio: ^5.9.0
+  firebase_core: ^4.1.0
+  firebase_messaging: ^16.0.0
   flutter_local_notifications: ^22.3.1
   flutter_riverpod: ^3.4.3
+  flutter_secure_storage: ^10.0.0
   flutter_timezone: ^5.1.0
   go_router: ^18.0.1
   intl: ^0.20.3

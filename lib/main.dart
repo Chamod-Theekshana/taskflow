@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'app.dart';
 import 'core/database/app_database.dart';
 import 'core/di/providers.dart';
+import 'core/notifications/push_service.dart';
 import 'core/theme/app_theme.dart';
 
 Future<void> main() async {
@@ -16,6 +17,15 @@ Future<void> main() async {
     const limit = Duration(seconds: 20);
     final db = await openAppDatabase().timeout(limit);
     final prefs = await SharedPreferences.getInstance().timeout(limit);
+
+    // Optional: without Firebase config the app runs without remote pushes.
+    try {
+      await PushService.instance.initialize().timeout(
+        const Duration(seconds: 8),
+      );
+    } catch (error) {
+      debugPrint('Push setup skipped: $error');
+    }
 
     runApp(
       ProviderScope(

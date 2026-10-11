@@ -34,6 +34,12 @@ class UpdateProfileUseCase {
       _repo.updateFullName(userId, fullName);
 }
 
+class RefreshProfileUseCase {
+  final AuthRepository _repo;
+  RefreshProfileUseCase(this._repo);
+  Future<User?> call() => _repo.refreshProfile();
+}
+
 class LogoutUseCase {
   final AuthRepository _repo;
   LogoutUseCase(this._repo);

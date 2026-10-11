@@ -8,13 +8,9 @@ import 'ui.dart';
 /// Unknown links and tasks that no longer exist.
 class NotFoundScreen extends StatelessWidget {
   final String title;
-  final String message;
+  final String? message;
 
-  const NotFoundScreen({
-    super.key,
-    this.title = 'Page not found',
-    this.message = "The page you were looking for doesn't exist.",
-  });
+  const NotFoundScreen({super.key, this.title = 'Page not found', this.message});
 
   @override
   Widget build(BuildContext context) {

@@ -54,17 +54,15 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
     ..onTap = () => _showPolicy(
       'Terms of Service',
       'TaskFlow is provided as is, for personal use. You are responsible for '
-          'the tasks you create and for keeping a backup of anything '
-          'important (Profile > Export Tasks). There is no server: your '
-          'account only exists on this device.',
+          'the tasks you create.',
     );
   late final _privacyTap = TapGestureRecognizer()
     ..onTap = () => _showPolicy(
       'Privacy Policy',
-      'Everything you enter - your name, e-mail, password and tasks - is '
-          'stored only on this device. Passwords are salted and hashed. '
-          'Nothing is sent to us or to anyone else, and there are no ads or '
-          'analytics.',
+      'Your name, email and tasks are stored on this device and on the '
+          'TaskFlow server so they sync between your devices. Passwords are '
+          'hashed, connections are encrypted, and your data is never sold or '
+          'shared. Deleting your account removes everything.',
     );
 
   @override
@@ -157,39 +155,14 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                               ),
                             ),
                             const SizedBox(height: 24),
-                            Row(
-                              children: [
-                                PulsingDot(color: p.accent),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'FREE • WORKS OFFLINE',
-                                  style: text.labelSmall?.copyWith(
-                                    color: p.accentSoft,
-                                    letterSpacing: 1.6,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
                             Text(
-                              'Create Your Account',
+                              'Create your account',
                               style: text.displayMedium?.copyWith(
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Plan, focus and finish what matters. '
-                              'Everything stays on this device.',
-                              style: text.bodyMedium?.copyWith(
-                                color: p.warmMuted,
-                              ),
-                            ),
                             const SizedBox(height: 28),
-                            const FieldLabel(
-                              'Full name',
-                              trailing: FieldNote('Required'),
-                            ),
+                            const FieldLabel('Full name'),
                             AuthField(
                               controller: _name,
                               icon: Icons.person_outline_rounded,
@@ -199,18 +172,15 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                               autofillHints: const [AutofillHints.name],
                               validator: (value) =>
                                   (value ?? '').trim().isEmpty
-                                  ? 'Tell us what to call you'
+                                  ? 'Enter your name'
                                   : null,
                             ),
                             const SizedBox(height: 16),
-                            const FieldLabel(
-                              'Email address',
-                              trailing: FieldNote('Required'),
-                            ),
+                            const FieldLabel('Email address'),
                             AuthField(
                               controller: _email,
                               icon: Icons.mail_outline_rounded,
-                              hint: 'alex@designflow.io',
+                              hint: 'you@example.com',
                               keyboardType: TextInputType.emailAddress,
                               textInputAction: TextInputAction.next,
                               autofillHints: const [AutofillHints.email],
@@ -246,7 +216,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                                     AuthField(
                                       controller: _password,
                                       icon: Icons.lock_outline_rounded,
-                                      hint: 'Create a strong password',
+                                      hint: '8+ characters, Aa, 0-9',
                                       obscure: _hidePassword,
                                       mono: true,
                                       textInputAction: TextInputAction.done,
@@ -272,7 +242,6 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                                                     p,
                                                     score,
                                                   ),
-                                                  glow: true,
                                                 ),
                                               ),
                                             ),
@@ -334,7 +303,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                             ),
                             const SizedBox(height: 24),
                             PrimaryButton(
-                              label: 'Get Started Free',
+                              label: 'Create account',
                               icon: Icons.arrow_forward_rounded,
                               loading: _busy,
                               height: 54,
@@ -343,7 +312,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                             ),
                             const SizedBox(height: 24),
                             AuthSwitchLink(
-                              question: 'Already registered?',
+                              question: 'Have an account?',
                               action: 'Log In',
                               onTap: () => context.go(AppRoutes.login),
                             ),
@@ -408,16 +377,11 @@ class _StrengthMeter extends StatelessWidget {
                   style: text.labelSmall?.copyWith(color: p.warmMuted),
                 ),
               ),
-              if (empty)
-                Text(
-                  '8+ chars, Aa, 0-9',
-                  style: text.labelSmall?.copyWith(color: p.textFaint),
-                )
-              else ...[
+              if (!empty) ...[
                 Dot(color: color, size: 6),
                 const SizedBox(width: 4),
                 Text(
-                  '${_strengthLabel(score)} ($score/4)',
+                  _strengthLabel(score),
                   style: text.labelSmall?.copyWith(
                     color: color,
                     fontWeight: FontWeight.w600,
@@ -438,14 +402,6 @@ class _StrengthMeter extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: i < filled ? segments[i] : p.track,
                       borderRadius: BorderRadius.circular(999),
-                      boxShadow: i < filled
-                          ? [
-                              BoxShadow(
-                                color: segments[i].withValues(alpha: 0.45),
-                                blurRadius: 8,
-                              ),
-                            ]
-                          : null,
                     ),
                   ),
                 ),

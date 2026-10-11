@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/routing/route_guard.dart';
 import '../../core/theme/app_theme.dart';
+import '../../features/sync/presentation/providers/sync_provider.dart';
 import 'app_logo.dart';
 import 'ui.dart';
 import 'user_avatar.dart';
@@ -47,6 +49,7 @@ class AppHeader extends StatelessWidget {
             ],
           ),
         ),
+        const _OfflineHint(),
         if (action != null) ...[action!, const SizedBox(width: 4)],
         const ProfileButton(),
       ],
@@ -110,6 +113,29 @@ class ProfileButton extends StatelessWidget {
         width: 44,
         height: 44,
         child: Center(child: UserAvatar(size: 34)),
+      ),
+    );
+  }
+}
+
+/// A small cloud icon while the server can't be reached. Everything keeps
+/// working; changes sync when the connection is back.
+class _OfflineHint extends ConsumerWidget {
+  const _OfflineHint();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final offline = ref.watch(syncStatusProvider.select((s) => s.isOffline));
+    if (!offline) return const SizedBox.shrink();
+    return Tooltip(
+      message: 'Offline',
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Icon(
+          Icons.cloud_off_rounded,
+          size: 20,
+          color: context.palette.textMuted,
+        ),
       ),
     );
   }

@@ -3,7 +3,15 @@ class User {
   final String fullName;
   final String email;
 
-  const User({required this.id, required this.fullName, required this.email});
+  /// When the account was created on the server.
+  final DateTime? createdAt;
+
+  const User({
+    required this.id,
+    required this.fullName,
+    required this.email,
+    this.createdAt,
+  });
 
   /// Up to two initials for the avatar, e.g. `Alex Morgan` -> `AM`.
   String get initials {
@@ -26,10 +34,5 @@ class User {
     return trimmed.split(RegExp(r'\s+')).first;
   }
 
-  /// Account ids are the creation time in microseconds.
-  DateTime? get memberSince {
-    final micros = int.tryParse(id);
-    if (micros == null) return null;
-    return DateTime.fromMicrosecondsSinceEpoch(micros);
-  }
+  DateTime? get memberSince => createdAt;
 }

@@ -45,34 +45,36 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     return Column(
       children: [
-        AppHeader(
-          action: _AddButton(),
-        ),
+        const AppHeader(action: _AddButton()),
         Expanded(
           child: RefreshIndicator(
             onRefresh: notifier.refresh,
-            child: ListView(
-              padding: EdgeInsets.fromLTRB(
-                20,
-                20,
-                20,
-                dockClearance(context),
-              ),
-              children: [
-                _Greeting(tasks: state.tasks, name: name, now: now),
-                const SizedBox(height: 12),
-                _FocusCard(tasks: state.tasks, now: now),
-                const SizedBox(height: 32),
-                AppSearchField(
-                  controller: _search,
-                  hint: 'Search your tasks, projects or tags...',
-                  onChanged: notifier.setSearchQuery,
-                  trailing: _RefineButton(active: state.hasRefinements),
+            // Slivers: only the cards on screen are built, however long the
+            // list gets.
+            child: CustomScrollView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              slivers: [
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+                  sliver: SliverList.list(
+                    children: [
+                      _Greeting(tasks: state.tasks, name: name, now: now),
+                      const SizedBox(height: 24),
+                      AppSearchField(
+                        controller: _search,
+                        hint: 'Search tasks',
+                        onChanged: notifier.setSearchQuery,
+                        trailing: _RefineButton(active: state.hasRefinements),
+                      ),
+                      const SizedBox(height: 16),
+                      _FilterRow(state: state, now: now),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 20),
-                _FilterRow(state: state, now: now),
-                const SizedBox(height: 16),
-                ..._list(state, visible, name),
+                SliverPadding(
+                  padding: EdgeInsets.fromLTRB(20, 0, 20, dockClearance(context)),
+                  sliver: _list(state, visible),
+                ),
               ],
             ),
           ),
@@ -81,54 +83,53 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  List<Widget> _list(TaskListState state, List<Task> visible, String? name) {
+  Widget _list(TaskListState state, List<Task> visible) {
     if (state.isLoading && state.tasks.isEmpty) {
-      return const [
-        Padding(
+      return const SliverToBoxAdapter(
+        child: Padding(
           padding: EdgeInsets.only(top: 48),
           child: Center(child: CircularProgressIndicator()),
         ),
-      ];
+      );
     }
     if (state.errorMessage != null && state.tasks.isEmpty) {
-      return [
-        EmptyState(
-          icon: Icons.cloud_off_rounded,
+      return SliverToBoxAdapter(
+        child: EmptyState(
+          icon: Icons.error_outline_rounded,
           title: "Couldn't load your tasks",
-          message: state.errorMessage!,
+          message: state.errorMessage,
           action: TextButton(
             onPressed: ref.read(taskListProvider.notifier).refresh,
             child: const Text('Try again'),
           ),
         ),
-      ];
+      );
     }
     if (visible.isEmpty) {
       final searching =
           state.searchQuery.trim().isNotEmpty || state.hasRefinements;
-      final who = (name == null || name.isEmpty) ? '' : ', $name';
-      return [
-        EmptyState(
+      return SliverToBoxAdapter(
+        child: EmptyState(
           icon: searching ? Icons.search_off_rounded : Icons.spa_outlined,
-          title: searching ? 'No matches' : 'Breathe easy$who',
-          message: searching
-              ? 'Nothing fits this search. Try other words or clear the '
-                    'filters.'
+          title: searching
+              ? 'No matches'
               : state.tasks.isEmpty
-              ? 'No tasks yet. Tap + to add the first thing on your mind.'
-              : 'No tasks in this view right now. Take a mindful pause or '
-                    'plan ahead.',
+              ? 'No tasks yet'
+              : 'All clear',
         ),
-      ];
+      );
     }
-    return [
-      for (final task in visible)
-        Padding(
+    return SliverList.builder(
+      itemCount: visible.length,
+      itemBuilder: (context, index) {
+        final task = visible[index];
+        return Padding(
           key: ValueKey(task.id),
           padding: const EdgeInsets.only(bottom: 12),
           child: TaskCard(task: task),
-        ),
-    ];
+        );
+      },
+    );
   }
 }
 
@@ -219,129 +220,6 @@ class _Greeting extends StatelessWidget {
   }
 }
 
-/// One line of guidance based on what's actually on the list.
-class _FocusCard extends StatelessWidget {
-  final List<Task> tasks;
-  final DateTime now;
-
-  const _FocusCard({required this.tasks, required this.now});
-
-  (String, String, IconData) _message() {
-    final open = tasks.where((t) => !t.isCompleted).toList();
-    final overdue = open.where((t) => t.isOverdue(now)).toList();
-    final today = open
-        .where((t) => isSameDate(t.dueDate, now) && !t.isOverdue(now))
-        .toList();
-    final urgent = today.where((t) => t.priority == TaskPriority.high).toList()
-      ..sort((a, b) => a.deadline.compareTo(b.deadline));
-
-    if (tasks.isEmpty) {
-      return (
-        'A Fresh Start',
-        'Add your first task with the + button below.',
-        Icons.wb_sunny_outlined,
-      );
-    }
-    if (overdue.isNotEmpty) {
-      final n = overdue.length;
-      return (
-        'Needs Attention',
-        '${plural(n, 'task')} ${n == 1 ? 'is' : 'are'} overdue. Clear '
-            '${n == 1 ? 'it' : 'them'} first to get back into flow.',
-        Icons.history_rounded,
-      );
-    }
-    if (urgent.isNotEmpty) {
-      final n = urgent.length;
-      final by = urgent.last.isAllDay
-          ? 'today'
-          : 'before ${shortTime(urgent.last.deadline)}';
-      return (
-        'Calm Focus State',
-        '$n high-priority ${n == 1 ? 'item requires' : 'items require'} '
-            'attention $by',
-        Icons.wb_sunny_outlined,
-      );
-    }
-    if (today.isNotEmpty) {
-      return (
-        'Calm Focus State',
-        '${plural(today.length, 'task')} planned for today. One at a time.',
-        Icons.wb_sunny_outlined,
-      );
-    }
-    if (open.isEmpty) {
-      return (
-        'All Clear',
-        'Everything is done. Enjoy the calm.',
-        Icons.spa_outlined,
-      );
-    }
-    return (
-      'Calm Focus State',
-      'Nothing is due today. A good moment to plan ahead.',
-      Icons.wb_sunny_outlined,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    final (title, body, icon) = _message();
-    return Panel(
-      padding: const EdgeInsets.all(12),
-      radius: 16,
-      child: Row(
-        children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: p.accent.withValues(alpha: 0.15),
-              shape: BoxShape.circle,
-              border: Border.all(color: p.accent.withValues(alpha: 0.3)),
-              boxShadow: [
-                BoxShadow(
-                  color: p.accent.withValues(alpha: 0.2),
-                  blurRadius: 10,
-                ),
-              ],
-            ),
-            child: Icon(icon, size: 18, color: p.accent),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: context.text.labelMedium?.copyWith(
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  body,
-                  style: context.text.bodySmall?.copyWith(
-                    color: p.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Icon(
-            Icons.auto_awesome_outlined,
-            size: 20,
-            color: p.accent.withValues(alpha: 0.8),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _AddButton extends StatelessWidget {
   const _AddButton();
 
@@ -356,7 +234,6 @@ class _AddButton extends StatelessWidget {
         decoration: BoxDecoration(
           color: context.palette.accent,
           shape: BoxShape.circle,
-          boxShadow: context.palette.glow(),
         ),
         child: const Icon(Icons.add_rounded, size: 22, color: Colors.white),
       ),

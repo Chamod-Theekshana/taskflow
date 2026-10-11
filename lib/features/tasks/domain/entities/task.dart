@@ -4,16 +4,13 @@ import '../../../../core/utils/date_time_utils.dart';
 const kBuiltInCategories = ['Work', 'Personal', 'Health', 'Shopping'];
 
 enum TaskPriority {
-  low('Low', 'Casual'),
-  medium('Medium', 'Normal'),
-  high('High', 'Urgent');
+  low('Low'),
+  medium('Medium'),
+  high('High');
 
-  const TaskPriority(this.label, this.mood);
+  const TaskPriority(this.label);
 
   final String label;
-
-  /// Second line on the priority picker ("Casual", "Normal", "Urgent").
-  final String mood;
 }
 
 /// Stored values can be missing or out of range in old rows.
@@ -78,7 +75,12 @@ extension RepeatRuleText on RepeatRule {
 }
 
 class Task {
+  /// Local SQLite id (routes, notification ids).
   final int? id;
+
+  /// Identity shared with the server and other devices. Assigned when the
+  /// task is first saved.
+  final String? uuid;
   final String? userId;
   final String title;
   final String description;
@@ -102,6 +104,7 @@ class Task {
 
   const Task({
     this.id,
+    this.uuid,
     this.userId,
     required this.title,
     this.description = '',
@@ -168,6 +171,7 @@ class Task {
 
   Task copyWith({
     int? id,
+    String? uuid,
     String? userId,
     String? title,
     String? description,
@@ -188,6 +192,7 @@ class Task {
   }) {
     return Task(
       id: id ?? this.id,
+      uuid: uuid ?? this.uuid,
       userId: userId ?? this.userId,
       title: title ?? this.title,
       description: description ?? this.description,
@@ -210,12 +215,14 @@ class Task {
 
 class Subtask {
   final int? id;
+  final String? uuid;
   final int taskId;
   final String title;
   final bool isCompleted;
 
   const Subtask({
     this.id,
+    this.uuid,
     required this.taskId,
     required this.title,
     this.isCompleted = false,
@@ -223,6 +230,7 @@ class Subtask {
 
   Subtask copyWith({bool? isCompleted}) => Subtask(
     id: id,
+    uuid: uuid,
     taskId: taskId,
     title: title,
     isCompleted: isCompleted ?? this.isCompleted,

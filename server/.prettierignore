@@ -1,0 +1,6 @@
+dist
+coverage
+drizzle
+node_modules
+# Generated
+docs/openapi.json

@@ -13,7 +13,6 @@ import '../../../../core/utils/quick_add_parser.dart';
 import '../../../../shared/widgets/app_header.dart';
 import '../../../../shared/widgets/not_found_screen.dart';
 import '../../../../shared/widgets/ui.dart';
-import '../../../../shared/widgets/user_avatar.dart';
 import '../../../settings/presentation/providers/settings_provider.dart';
 import '../../domain/entities/task.dart';
 import '../providers/task_provider.dart';
@@ -325,10 +324,7 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
   @override
   Widget build(BuildContext context) {
     if (_notFound) {
-      return const NotFoundScreen(
-        title: 'Task not found',
-        message: 'This task no longer exists.',
-      );
+      return const NotFoundScreen(title: 'Task not found');
     }
 
     final p = context.palette;
@@ -351,7 +347,6 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
                   foreground: p.text.withValues(alpha: 0.7),
                   onPressed: () => closeScreen(context),
                 ),
-                const UserAvatar(size: 34),
               ],
             ),
             Expanded(
@@ -362,11 +357,6 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
                           ScrollViewKeyboardDismissBehavior.onDrag,
                       padding: EdgeInsets.fromLTRB(16, 16, 16, 32 + bottom),
                       children: [
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: _ModePill(editing: _isEditing),
-                        ),
-                        const SizedBox(height: 12),
                         _heroCard(),
                         const SizedBox(height: 22),
                         _whenSection(),
@@ -376,11 +366,9 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
                         _categorySection(),
                         const SizedBox(height: 22),
                         _optionsCard(),
-                        const SizedBox(height: 20),
-                        const _MindfulBanner(),
                         const SizedBox(height: 28),
                         PrimaryButton(
-                          label: _isEditing ? 'Save Changes' : 'Save Task',
+                          label: _isEditing ? 'Save' : 'Add task',
                           icon: Icons.check_circle_outline_rounded,
                           iconAfter: false,
                           height: 56,
@@ -470,7 +458,7 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
                   textCapitalization: TextCapitalization.sentences,
                   style: text.bodyMedium?.copyWith(height: 1.6),
                   decoration: InputDecoration(
-                    hintText: 'Add notes, context, or links...',
+                    hintText: 'Notes',
                     hintStyle: text.bodyMedium?.copyWith(
                       color: p.text.withValues(alpha: 0.3),
                       height: 1.6,
@@ -486,43 +474,38 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          divider,
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Icon(Icons.auto_awesome_rounded, size: 15, color: p.accent),
-              const SizedBox(width: 6),
-              Expanded(
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 200),
-                  child: Text(
-                    found.isEmpty
-                        ? 'Auto-detects dates, tags & priority'
-                        : 'Detected: ${found.join(' · ')}',
-                    key: ValueKey(found.join()),
-                    style: text.bodySmall?.copyWith(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: found.isEmpty
-                          ? p.text.withValues(alpha: 0.5)
-                          : p.accentSoft,
+          if (found.isNotEmpty || length > 100) ...[
+            const SizedBox(height: 12),
+            divider,
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                if (found.isNotEmpty) ...[
+                  Icon(Icons.auto_awesome_rounded, size: 15, color: p.accent),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      found.join(' · '),
+                      style: text.bodySmall?.copyWith(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: p.accentSoft,
+                      ),
+                      maxLines: 2,
                     ),
-                    maxLines: 2,
                   ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                '$length/$_maxTitle',
-                style: text.labelSmall?.copyWith(
-                  color: length > 100
-                      ? p.danger
-                      : p.text.withValues(alpha: 0.4),
-                ),
-              ),
-            ],
-          ),
+                ] else
+                  const Spacer(),
+                if (length > 100) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    '$length/$_maxTitle',
+                    style: text.labelSmall?.copyWith(color: p.danger),
+                  ),
+                ],
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -594,7 +577,7 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
                     ? DateFormat(
                         _date.year == today.year ? 'EEE, MMM d' : 'MMM d, y',
                       ).format(_date)
-                    : 'Pick Date',
+                    : 'Pick date',
                 selected: customDate,
                 onTap: _pickDate,
               ),
@@ -626,20 +609,17 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Target Time',
+                          'Time',
                           style: text.titleSmall?.copyWith(fontSize: 13),
                         ),
-                        Text(
-                          _allDay
-                              ? 'Any time that day'
-                              : due.isBefore(DateTime.now())
-                              ? 'This time has already passed'
-                              : relativeDueLabel(due),
-                          style: text.bodySmall?.copyWith(
-                            fontSize: 12,
-                            color: p.warmMuted,
+                        if (!_allDay && due.isBefore(DateTime.now()))
+                          Text(
+                            'Already passed',
+                            style: text.bodySmall?.copyWith(
+                              fontSize: 12,
+                              color: p.danger,
+                            ),
                           ),
-                        ),
                       ],
                     ),
                   ),
@@ -731,7 +711,7 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Text(
-                'Manage tags',
+                'Manage',
                 style: context.text.bodySmall?.copyWith(
                   fontSize: 12,
                   fontWeight: FontWeight.w500,
@@ -771,7 +751,7 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
     );
     final String reminderText;
     if (!notificationsOn) {
-      reminderText = 'Notifications are off in Profile';
+      reminderText = 'Notifications are off';
     } else if (!_reminder) {
       reminderText = 'No reminder';
     } else if (_allDay) {
@@ -818,41 +798,6 @@ class _AddEditTaskScreenState extends ConsumerState<AddEditTaskScreen> {
             trailing: Icon(
               Icons.chevron_right_rounded,
               color: p.text.withValues(alpha: 0.3),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// "CREATING FOCUS" / "EDITING TASK" pill.
-class _ModePill extends StatelessWidget {
-  final bool editing;
-
-  const _ModePill({required this.editing});
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: p.accent.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: p.accent.withValues(alpha: 0.2)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          PulsingDot(color: p.accent),
-          const SizedBox(width: 8),
-          Text(
-            editing ? 'EDITING TASK' : 'CREATING FOCUS',
-            style: context.text.titleSmall?.copyWith(
-              fontSize: 11,
-              letterSpacing: 0.6,
-              color: p.accentSoft,
             ),
           ),
         ],
@@ -948,9 +893,7 @@ class _PriorityOption extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                priority == TaskPriority.high
-                    ? PulsingDot(color: dot)
-                    : Dot(color: dot),
+                Dot(color: dot),
                 const SizedBox(width: 6),
                 Flexible(
                   child: Text(
@@ -967,14 +910,6 @@ class _PriorityOption extends StatelessWidget {
                   Icon(Icons.check_rounded, size: 14, color: p.accentSoft),
                 ],
               ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              priority.mood,
-              style: text.bodySmall?.copyWith(
-                fontSize: 10.5,
-                color: selected ? p.accentSoft : p.warmMuted,
-              ),
             ),
           ],
         ),
@@ -1061,7 +996,7 @@ class _AddTagChip extends StatelessWidget {
             Icon(Icons.add_rounded, size: 15, color: p.accentSoft),
             const SizedBox(width: 4),
             Text(
-              'Add Tag',
+              'Tag',
               style: context.text.titleSmall?.copyWith(
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
@@ -1128,53 +1063,3 @@ class _OptionRow extends StatelessWidget {
     );
   }
 }
-
-class _MindfulBanner extends StatelessWidget {
-  const _MindfulBanner();
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    return Panel(
-      radius: 16,
-      shadow: false,
-      padding: const EdgeInsets.all(14),
-      borderColor: p.accent.withValues(alpha: 0.2),
-      gradient: LinearGradient(
-        colors: [p.accent.withValues(alpha: 0.1), p.cardMuted, p.cardMuted],
-      ),
-      child: Row(
-        children: [
-          IconTile(
-            icon: Icons.local_fire_department_outlined,
-            background: p.accent.withValues(alpha: 0.2),
-            iconSize: 22,
-            radius: 12,
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Mindful Focus',
-                  style: context.text.titleSmall?.copyWith(fontSize: 12),
-                ),
-                Text(
-                  'One clear intention at a time. Flow starts now.',
-                  style: context.text.bodySmall?.copyWith(
-                    fontSize: 12,
-                    color: p.warmMuted,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-

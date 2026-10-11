@@ -5,8 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/notifications/notification_service.dart';
+import '../../core/notifications/push_service.dart';
 import '../../core/routing/route_guard.dart';
 import '../../core/theme/app_theme.dart';
+import '../../features/tasks/presentation/providers/task_provider.dart';
 import 'ui.dart';
 
 /// Room the tab screens leave at the bottom so their last item clears the
@@ -64,26 +66,52 @@ class AppShell extends ConsumerStatefulWidget {
 }
 
 class _AppShellState extends ConsumerState<AppShell> {
-  StreamSubscription<int>? _reminderTaps;
+  final _subscriptions = <StreamSubscription<Object?>>[];
 
   @override
   void initState() {
     super.initState();
-    final notifications = NotificationService.instance;
-    _reminderTaps = notifications.taskTaps.listen(_openTask);
-    notifications.takeLaunchTaskId().then((id) {
+    final local = NotificationService.instance;
+    final push = PushService.instance;
+    _subscriptions
+      ..add(local.taskTaps.listen(_openTask))
+      ..add(local.remoteTaskTaps.listen(_openRemoteTask))
+      ..add(push.taskTaps.listen(_openRemoteTask));
+
+    // The app was opened from a notification.
+    local.takeLaunchTaskId().then((id) {
       if (id != null) _openTask(id);
     });
+    local.takeLaunchTaskUuid().then((uuid) {
+      if (uuid != null) _openRemoteTask(uuid);
+    });
+    final pushed = push.takeLaunchTaskUuid();
+    if (pushed != null) _openRemoteTask(pushed);
   }
 
   @override
   void dispose() {
-    _reminderTaps?.cancel();
+    for (final subscription in _subscriptions) {
+      subscription.cancel();
+    }
     super.dispose();
   }
 
   void _openTask(int id) {
     if (mounted) context.push(AppRoutes.task(id));
+  }
+
+  /// A push names the task by its server id; it may not be on this device
+  /// yet, so sync first when it's missing.
+  Future<void> _openRemoteTask(String uuid) async {
+    var task = ref.read(taskListProvider).taskByUuid(uuid);
+    if (task == null) {
+      await ref.read(taskListProvider.notifier).refresh();
+      if (!mounted) return;
+      task = ref.read(taskListProvider).taskByUuid(uuid);
+    }
+    final id = task?.id;
+    if (id != null) _openTask(id);
   }
 
   @override
@@ -104,9 +132,15 @@ class _AppShellState extends ConsumerState<AppShell> {
                 heightFactor: 1,
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 360),
-                  child: _Dock(
-                    index: index < 0 ? 3 : index,
-                    onSelect: (i) => context.go(_tabs[i].path),
+                  // Content scrolls under the dock; keep its blurred shadow
+                  // from being repainted on every scroll frame.
+                  child: RepaintBoundary(
+                    child: _Dock(
+                      index: index < 0 ? 3 : index,
+                      onSelect: (i) {
+                        if (i != index) context.go(_tabs[i].path);
+                      },
+                    ),
                   ),
                 ),
               ),
@@ -259,13 +293,6 @@ class _ActiveDisc extends StatelessWidget {
               colors: [p.accent, p.accentBright],
             ),
             border: Border.all(color: p.dockBottom, width: 2),
-            boxShadow: [
-              BoxShadow(
-                color: p.accent.withValues(alpha: 0),
-                blurRadius: 20,
-                offset: const Offset(0, 6),
-              ),
-            ],
           ),
           child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 200),

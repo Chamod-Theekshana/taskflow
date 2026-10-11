@@ -2,9 +2,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/di/providers.dart';
 import '../../../../core/error/failures.dart';
+import '../../../../core/sync/data_change_bus.dart';
 import '../../../../core/utils/date_time_utils.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
-import '../../data/repositories/sqlite_task_repository.dart';
+import '../../data/datasources/task_local_data_source.dart';
+import '../../data/repositories/task_repository_impl.dart';
 import '../../domain/entities/task.dart';
 import '../../domain/repositories/task_repository.dart';
 
@@ -70,6 +72,13 @@ class TaskListState {
   Task? taskById(int id) {
     for (final task in tasks) {
       if (task.id == id) return task;
+    }
+    return null;
+  }
+
+  Task? taskByUuid(String uuid) {
+    for (final task in tasks) {
+      if (task.uuid == uuid) return task;
     }
     return null;
   }
@@ -164,11 +173,19 @@ class TaskListState {
   }
 }
 
+final taskLocalDataSourceProvider = Provider<TaskLocalDataSource>(
+  (ref) => TaskLocalDataSource(ref.watch(databaseProvider)),
+);
+
 /// Rebuilt when the signed-in account changes, which reloads the list.
 final taskRepositoryProvider = Provider<TaskRepository>((ref) {
-  final db = ref.watch(databaseProvider);
   final userId = ref.watch(authProvider.select((auth) => auth.value?.id));
-  return SqliteTaskRepository(db, userId);
+  final bus = ref.watch(dataChangeBusProvider);
+  return TaskRepositoryImpl(
+    ref.watch(taskLocalDataSourceProvider),
+    userId,
+    onLocalChange: () => bus.localChanged(DataScope.tasks),
+  );
 });
 
 final taskListProvider = NotifierProvider<TaskListNotifier, TaskListState>(
@@ -186,6 +203,15 @@ class TaskListNotifier extends Notifier<TaskListState> {
   TaskListState build() {
     _repository = ref.watch(taskRepositoryProvider);
     _generation++;
+
+    // Tasks pulled from the server (another device changed something).
+    final pulled = ref
+        .watch(dataChangeBusProvider)
+        .remoteChanges
+        .where((scope) => scope == DataScope.tasks)
+        .listen((_) => _load());
+    ref.onDispose(pulled.cancel);
+
     // `state` can't be touched until build() returns.
     Future.microtask(_load);
     return const TaskListState(isLoading: true);
@@ -206,7 +232,22 @@ class TaskListNotifier extends Notifier<TaskListState> {
     }
   }
 
-  Future<void> refresh() => _load();
+  /// Pull-to-refresh: syncs with the server, then reloads.
+  Future<void> refresh() async {
+    try {
+      await ref.read(dataChangeBusProvider).syncNow();
+    } catch (_) {
+      // Offline: the local list is still correct.
+    }
+    await _load();
+  }
+
+  /// Shows [task] right away while it is being saved.
+  void _replaceLocally(Task task) {
+    state = state.copyWith(
+      tasks: [for (final t in state.tasks) t.id == task.id ? task : t],
+    );
+  }
 
   void setSearchQuery(String query) =>
       state = state.copyWith(searchQuery: query);
@@ -243,30 +284,44 @@ class TaskListNotifier extends Notifier<TaskListState> {
   Future<Task?> toggleComplete(Task task) async {
     final now = DateTime.now();
     if (task.isCompleted) {
-      await _repository.updateTask(
-        task.copyWith(
-          isCompleted: false,
-          clearCompletedAt: true,
-          updatedAt: now,
-        ),
+      final reopened = task.copyWith(
+        isCompleted: false,
+        clearCompletedAt: true,
+        updatedAt: now,
       );
-      await _load();
+      _replaceLocally(reopened);
+      try {
+        await _repository.updateTask(reopened);
+      } finally {
+        await _load();
+      }
       return null;
     }
 
-    await _repository.updateTask(
-      task.copyWith(isCompleted: true, completedAt: now, updatedAt: now),
+    // The checkbox reacts at once; the database catches up right after.
+    _replaceLocally(
+      task.copyWith(
+        isCompleted: true,
+        completedAt: now,
+        updatedAt: now,
+        subtasks: [for (final s in task.subtasks) s.copyWith(isCompleted: true)],
+      ),
     );
-    for (final subtask in task.subtasks.where((s) => !s.isCompleted)) {
-      await _repository.updateSubtask(subtask.copyWith(isCompleted: true));
+    try {
+      await _repository.updateTask(
+        task.copyWith(isCompleted: true, completedAt: now, updatedAt: now),
+      );
+      for (final subtask in task.subtasks.where((s) => !s.isCompleted)) {
+        await _repository.updateSubtask(subtask.copyWith(isCompleted: true));
+      }
+
+      Task? follower = task.nextOccurrence(now);
+      if (follower != null && _alreadyScheduled(follower)) follower = null;
+      if (follower != null) await _repository.insertTask(follower);
+      return follower;
+    } finally {
+      await _load();
     }
-
-    Task? follower = task.nextOccurrence(now);
-    if (follower != null && _alreadyScheduled(follower)) follower = null;
-    if (follower != null) await _repository.insertTask(follower);
-
-    await _load();
-    return follower;
   }
 
   // Completing, reopening and completing again must not stack up copies.
@@ -279,8 +334,14 @@ class TaskListNotifier extends Notifier<TaskListState> {
   );
 
   Future<void> deleteTask(int id) async {
-    await _repository.deleteTask(id);
-    await _load();
+    state = state.copyWith(
+      tasks: [for (final t in state.tasks) if (t.id != id) t],
+    );
+    try {
+      await _repository.deleteTask(id);
+    } finally {
+      await _load();
+    }
   }
 
   Future<Task?> getTaskById(int id) async {
@@ -288,20 +349,54 @@ class TaskListNotifier extends Notifier<TaskListState> {
   }
 
   Future<void> toggleSubtask(Subtask subtask) async {
-    await _repository.updateSubtask(
-      subtask.copyWith(isCompleted: !subtask.isCompleted),
-    );
-    await _load();
+    final toggled = subtask.copyWith(isCompleted: !subtask.isCompleted);
+    final parent = state.taskById(subtask.taskId);
+    if (parent != null) {
+      _replaceLocally(
+        parent.copyWith(
+          subtasks: [
+            for (final s in parent.subtasks) s.id == subtask.id ? toggled : s,
+          ],
+        ),
+      );
+    }
+    try {
+      await _repository.updateSubtask(toggled);
+    } finally {
+      await _load();
+    }
   }
 
+  static const maxSubtasks = 50;
+
   Future<void> addSubtask(int taskId, String title) async {
+    final parent = state.taskById(taskId);
+    if (parent != null && parent.subtasks.length >= maxSubtasks) {
+      throw const Failure('A task can have up to $maxSubtasks subtasks.');
+    }
     await _repository.insertSubtask(Subtask(taskId: taskId, title: title));
     await _load();
   }
 
   Future<void> deleteSubtask(int subtaskId) async {
-    await _repository.deleteSubtask(subtaskId);
-    await _load();
+    state = state.copyWith(
+      tasks: [
+        for (final t in state.tasks)
+          t.subtasks.any((s) => s.id == subtaskId)
+              ? t.copyWith(
+                  subtasks: [
+                    for (final s in t.subtasks)
+                      if (s.id != subtaskId) s,
+                  ],
+                )
+              : t,
+      ],
+    );
+    try {
+      await _repository.deleteSubtask(subtaskId);
+    } finally {
+      await _load();
+    }
   }
 
   /// Adds tasks from a backup, skipping ones that are already in the list.

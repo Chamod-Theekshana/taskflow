@@ -74,50 +74,6 @@ class Dot extends StatelessWidget {
   }
 }
 
-/// A dot that gently fades in and out (`animate-pulse`).
-class PulsingDot extends StatefulWidget {
-  final Color color;
-  final double size;
-  final bool glow;
-
-  const PulsingDot({
-    super.key,
-    required this.color,
-    this.size = 8,
-    this.glow = true,
-  });
-
-  @override
-  State<PulsingDot> createState() => _PulsingDotState();
-}
-
-class _PulsingDotState extends State<PulsingDot>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1000),
-  )..repeat(reverse: true);
-
-  late final Animation<double> _opacity = Tween<double>(
-    begin: 1,
-    end: 0.4,
-  ).animate(_controller);
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return FadeTransition(
-      opacity: _opacity,
-      child: Dot(color: widget.color, size: widget.size, glow: widget.glow),
-    );
-  }
-}
-
 /// Rounded label used for badges and tags: `px-2.5 py-1 rounded-full`,
 /// monospaced text and a hairline border.
 class Pill extends StatelessWidget {
@@ -129,7 +85,6 @@ class Pill extends StatelessWidget {
   final Color? iconColor;
   final double iconSize;
   final Color? dot;
-  final bool pulseDot;
   final TextStyle? style;
   final EdgeInsetsGeometry padding;
 
@@ -143,7 +98,6 @@ class Pill extends StatelessWidget {
     this.iconColor,
     this.iconSize = 14,
     this.dot,
-    this.pulseDot = false,
     this.style,
     this.padding = const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
   });
@@ -169,9 +123,7 @@ class Pill extends StatelessWidget {
             if (dotColor != null) ...[
               WidgetSpan(
                 alignment: PlaceholderAlignment.middle,
-                child: pulseDot
-                    ? PulsingDot(color: dotColor, size: 6)
-                    : Dot(color: dotColor, size: 6),
+                child: Dot(color: dotColor, size: 6),
               ),
               const WidgetSpan(child: SizedBox(width: 6)),
             ],
@@ -601,18 +553,18 @@ class AppSwitch extends StatelessWidget {
   }
 }
 
-/// "Nothing here" card: glowing icon disc, title and a line of guidance.
+/// "Nothing here" card: icon disc, title and an optional line of guidance.
 class EmptyState extends StatelessWidget {
   final IconData icon;
   final String title;
-  final String message;
+  final String? message;
   final Widget? action;
 
   const EmptyState({
     super.key,
     required this.icon,
     required this.title,
-    required this.message,
+    this.message,
     this.action,
   });
 
@@ -620,7 +572,7 @@ class EmptyState extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.palette;
     return Panel(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 44),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 36),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -643,17 +595,19 @@ class EmptyState extends StatelessWidget {
             ),
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 4),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 300),
-            child: Text(
-              message,
-              textAlign: TextAlign.center,
-              style: context.text.bodyMedium?.copyWith(
-                color: p.textSecondary,
+          if (message != null) ...[
+            const SizedBox(height: 4),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 300),
+              child: Text(
+                message!,
+                textAlign: TextAlign.center,
+                style: context.text.bodyMedium?.copyWith(
+                  color: p.textSecondary,
+                ),
               ),
             ),
-          ),
+          ],
           if (action != null) ...[const SizedBox(height: 16), action!],
         ],
       ),
@@ -967,7 +921,7 @@ class _ChoiceRow extends StatelessWidget {
 Future<bool> confirmAction(
   BuildContext context, {
   required String title,
-  required String message,
+  String? message,
   required String confirmLabel,
 }) async {
   final confirmed = await showDialog<bool>(
@@ -976,7 +930,7 @@ Future<bool> confirmAction(
       final p = dialogContext.palette;
       return AlertDialog(
         title: Text(title),
-        content: Text(message),
+        content: message == null ? null : Text(message),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),

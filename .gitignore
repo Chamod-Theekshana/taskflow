@@ -46,3 +46,7 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Local build-time configuration (see config/example.json)
+/config/*.json
+!/config/example.json

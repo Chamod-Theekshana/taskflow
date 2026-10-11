@@ -73,86 +73,86 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       children: [
         const AppHeader(subtitle: 'Search'),
         Expanded(
-          child: ListView(
+          child: CustomScrollView(
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-            padding: EdgeInsets.fromLTRB(20, 20, 20, dockClearance(context)),
-            children: [
-              Text('Find anything', style: context.text.displayMedium),
-              const SizedBox(height: 2),
-              Text(
-                'Titles, notes, categories and subtasks.',
-                style: context.text.bodySmall?.copyWith(
-                  color: p.textSecondary,
-                ),
-              ),
-              const SizedBox(height: 20),
-              AppSearchField(
-                controller: _controller,
-                hint: 'Search your tasks, projects or tags...',
-                onChanged: (value) => setState(() => _query = value),
-              ),
-              const SizedBox(height: 16),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                clipBehavior: Clip.none,
-                child: Row(
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                sliver: SliverList.list(
                   children: [
-                    for (final item in _Quick.values)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: FilterPill(
-                          label: item.label,
-                          icon: item.icon,
-                          selected: _quick == item,
-                          onTap: () => setState(
-                            () => _quick = _quick == item ? null : item,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        searching ? 'Results' : 'Recently updated',
-                        style: context.text.headlineSmall,
+                    AppSearchField(
+                      controller: _controller,
+                      hint: 'Titles, notes, tags, subtasks',
+                      onChanged: (value) => setState(() => _query = value),
+                    ),
+                    const SizedBox(height: 16),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      clipBehavior: Clip.none,
+                      child: Row(
+                        children: [
+                          for (final item in _Quick.values)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: FilterPill(
+                                label: item.label,
+                                icon: item.icon,
+                                selected: _quick == item,
+                                onTap: () => setState(
+                                  () => _quick = _quick == item ? null : item,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
-                    if (searching)
-                      Text(
-                        results.length == 1
-                            ? '1 match'
-                            : '${results.length} matches',
-                        style: context.text.labelSmall?.copyWith(
-                          color: p.textSecondary,
-                        ),
+                    const SizedBox(height: 24),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              searching ? 'Results' : 'Recent',
+                              style: context.text.headlineSmall,
+                            ),
+                          ),
+                          if (searching)
+                            Text(
+                              '${results.length}',
+                              style: context.text.labelSmall?.copyWith(
+                                color: p.textSecondary,
+                              ),
+                            ),
+                        ],
                       ),
+                    ),
                   ],
                 ),
               ),
-              const SizedBox(height: 12),
-              if (results.isEmpty)
-                EmptyState(
-                  icon: searching
-                      ? Icons.search_off_rounded
-                      : Icons.inventory_2_outlined,
-                  title: searching ? 'No matches' : 'Nothing here yet',
-                  message: searching
-                      ? 'Try a different word or turn off the filter.'
-                      : 'Tasks you create or change will show up here.',
-                )
-              else
-                for (final task in results)
-                  Padding(
-                    key: ValueKey(task.id),
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: TaskCard(task: task),
-                  ),
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(20, 0, 20, dockClearance(context)),
+                sliver: results.isEmpty
+                    ? SliverToBoxAdapter(
+                        child: EmptyState(
+                          icon: searching
+                              ? Icons.search_off_rounded
+                              : Icons.inventory_2_outlined,
+                          title: searching ? 'No matches' : 'Nothing here yet',
+                        ),
+                      )
+                    : SliverList.builder(
+                        itemCount: results.length,
+                        itemBuilder: (context, index) {
+                          final task = results[index];
+                          return Padding(
+                            key: ValueKey(task.id),
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: TaskCard(task: task),
+                          );
+                        },
+                      ),
+              ),
             ],
           ),
         ),

@@ -1,5 +1,7 @@
 import '../entities/task.dart';
 
+/// Tasks of the signed-in user. Reads and writes are local and instant; the
+/// data layer replicates them to the server in the background.
 abstract class TaskRepository {
   Future<List<Task>> getAllTasks();
   Future<Task?> getTaskById(int id);

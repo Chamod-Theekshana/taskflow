@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../../core/constants.dart';
 import '../../../../core/error/failures.dart';
 import '../../../../core/routing/route_guard.dart';
 import '../../../../core/theme/app_theme.dart';
@@ -84,21 +83,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           children: [
                             _TopBar(onClose: _leave),
                             const SizedBox(height: 28),
-                            Text('Welcome Back', style: text.displayMedium),
-                            const SizedBox(height: 6),
-                            Text(
-                              'Log in to resume your focus streak and manage '
-                              'your flow.',
-                              style: text.bodyMedium?.copyWith(
-                                color: p.warm.withValues(alpha: 0.8),
-                              ),
-                            ),
+                            Text('Welcome back', style: text.displayMedium),
                             const SizedBox(height: 28),
                             const FieldLabel('Email address'),
                             AuthField(
                               controller: _email,
                               icon: Icons.mail_outline_rounded,
-                              hint: 'alex@designflow.io',
+                              hint: 'you@example.com',
                               keyboardType: TextInputType.emailAddress,
                               textInputAction: TextInputAction.next,
                               autofillHints: const [AutofillHints.email],
@@ -172,8 +163,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               textStyle: text.titleLarge,
                               onPressed: _logIn,
                             ),
-                            const SizedBox(height: 24),
-                            const PrivacyCard(version: kAppVersion),
                             const SizedBox(height: 20),
                             AuthSwitchLink(
                               question: "Don't have an account?",
@@ -195,7 +184,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 }
 
-/// Close button, the brand pill and a live dot.
+/// Close button and the brand pill.
 class _TopBar extends StatelessWidget {
   final VoidCallback onClose;
 
@@ -236,11 +225,8 @@ class _TopBar extends StatelessWidget {
             ),
           ),
         ),
-        SizedBox(
-          width: 40,
-          height: 40,
-          child: Center(child: PulsingDot(color: p.accent)),
-        ),
+        // Balances the close button so the pill stays centred.
+        const SizedBox(width: 40, height: 40),
       ],
     );
   }

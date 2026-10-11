@@ -65,19 +65,17 @@ class TaskCard extends ConsumerWidget {
     final strip = done
         ? p.accent.withValues(alpha: 0.4)
         : priorityAccent(p, task.priority);
-    final glowStrip = !done && task.priority == TaskPriority.high;
 
-    return AnimatedOpacity(
-      duration: const Duration(milliseconds: 200),
-      opacity: done ? 0.75 : 1,
+    // Plain colours instead of an Opacity layer and no blurred shadow:
+    // cards are drawn in long lists, so they have to be cheap.
+    return RepaintBoundary(
       child: Container(
         decoration: BoxDecoration(
-          color: done ? p.cardMuted.withValues(alpha: 0.8) : p.card,
+          color: done ? p.cardMuted : p.card,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: done ? p.border.withValues(alpha: 0.5) : p.border,
           ),
-          boxShadow: done ? null : p.cardShadow,
         ),
         child: Material(
           type: MaterialType.transparency,
@@ -97,12 +95,11 @@ class TaskCard extends ConsumerWidget {
                       borderRadius: const BorderRadius.horizontal(
                         right: Radius.circular(4),
                       ),
-                      boxShadow: null,
                     ),
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 8, 20),
+                  padding: const EdgeInsets.fromLTRB(16, 14, 8, 16),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -123,11 +120,11 @@ class TaskCard extends ConsumerWidget {
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: text.headlineSmall?.copyWith(
-                                      color: done ? p.textSecondary : p.text,
+                                      color: done ? p.textMuted : p.text,
                                       decoration: done
                                           ? TextDecoration.lineThrough
                                           : null,
-                                      decorationColor: p.textSecondary,
+                                      decorationColor: p.textMuted,
                                     ),
                                   ),
                                 ),
@@ -150,42 +147,24 @@ class TaskCard extends ConsumerWidget {
                                   overflow: TextOverflow.ellipsis,
                                   style: text.bodySmall?.copyWith(
                                     color: done
-                                        ? p.textSecondary.withValues(alpha: 0.6)
+                                        ? p.textFaint
                                         : p.textSecondary,
-                                    decoration: done
-                                        ? TextDecoration.lineThrough
-                                        : null,
-                                    decorationColor: p.textSecondary,
                                   ),
                                 ),
                               ),
-                            const SizedBox(height: 12),
+                            const SizedBox(height: 10),
                             Wrap(
                               spacing: 8,
                               runSpacing: 8,
                               children: [
-                                if (done)
-                                  Pill(
-                                    label: 'Completed',
-                                    icon: Icons.done_all_rounded,
-                                    background: p.accent.withValues(
-                                      alpha: 0.15,
-                                    ),
-                                    foreground: p.accent,
-                                    border: p.accent.withValues(alpha: 0.3),
-                                    style: text.labelSmall?.copyWith(
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  )
-                                else ...[
+                                if (!done) ...[
                                   DueBadge(task: task),
-                                  PriorityBadge(
-                                    priority: task.priority,
-                                    long: true,
-                                  ),
+                                  PriorityBadge(priority: task.priority),
                                 ],
                                 if (task.category.isNotEmpty)
                                   CategoryTag(category: task.category),
+                                if (task.subtasks.isNotEmpty)
+                                  _SubtaskCount(task: task),
                               ],
                             ),
                           ],
@@ -199,6 +178,26 @@ class TaskCard extends ConsumerWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// "2/5" with a checklist icon.
+class _SubtaskCount extends StatelessWidget {
+  final Task task;
+
+  const _SubtaskCount({required this.task});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return Pill(
+      label: '${task.completedSubtasks}/${task.subtasks.length}',
+      icon: Icons.checklist_rounded,
+      iconSize: 13,
+      background: p.raised,
+      foreground: p.textSecondary,
+      border: p.border,
     );
   }
 }

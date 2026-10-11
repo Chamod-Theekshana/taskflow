@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 
 import '../../tasks/domain/entities/task.dart';
@@ -46,4 +47,27 @@ class AppSettings {
       customCategories: customCategories ?? this.customCategories,
     );
   }
+
+  // Value equality: a pulled copy of the same settings doesn't rebuild the UI.
+  @override
+  bool operator ==(Object other) =>
+      other is AppSettings &&
+      other.notificationsEnabled == notificationsEnabled &&
+      other.dailyDigestEnabled == dailyDigestEnabled &&
+      other.dailyDigestTime == dailyDigestTime &&
+      other.themeMode == themeMode &&
+      other.defaultPriority == defaultPriority &&
+      other.dailyGoal == dailyGoal &&
+      listEquals(other.customCategories, customCategories);
+
+  @override
+  int get hashCode => Object.hash(
+    notificationsEnabled,
+    dailyDigestEnabled,
+    dailyDigestTime,
+    themeMode,
+    defaultPriority,
+    dailyGoal,
+    Object.hashAll(customCategories),
+  );
 }

@@ -65,14 +65,8 @@ Color priorityAccent(AppPalette p, TaskPriority priority) {
 class PriorityBadge extends StatelessWidget {
   final TaskPriority priority;
   final bool long;
-  final bool pulse;
 
-  const PriorityBadge({
-    super.key,
-    required this.priority,
-    this.long = false,
-    this.pulse = true,
-  });
+  const PriorityBadge({super.key, required this.priority, this.long = false});
 
   @override
   Widget build(BuildContext context) {
@@ -84,7 +78,6 @@ class PriorityBadge extends StatelessWidget {
         foreground: p.accentSoft,
         border: p.accent.withValues(alpha: 0.3),
         dot: p.accent,
-        pulseDot: pulse,
       ),
       TaskPriority.medium => Pill(
         label: 'Medium',

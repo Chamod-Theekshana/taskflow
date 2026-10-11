@@ -142,7 +142,6 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                 const EmptyState(
                   icon: Icons.event_available_outlined,
                   title: 'Nothing planned',
-                  message: 'This day is free. Add a task to give it focus.',
                 )
               else
                 for (final task in dayTasks)

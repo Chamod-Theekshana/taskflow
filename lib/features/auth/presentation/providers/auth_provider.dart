@@ -1,21 +1,32 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/di/providers.dart';
+import '../../../../core/utils/device_timezone.dart';
 import '../../data/datasources/auth_local_data_source.dart';
+import '../../data/datasources/auth_remote_data_source.dart';
 import '../../data/repositories/auth_repository_impl.dart';
 import '../../domain/entities/user.dart';
 import '../../domain/repositories/auth_repository.dart';
 import '../../domain/usecases/auth_usecases.dart';
 
 final authLocalDataSourceProvider = Provider<AuthLocalDataSource>((ref) {
-  return AuthLocalDataSourceImpl(ref.watch(databaseProvider));
+  return AuthLocalDataSourceImpl(ref.watch(sharedPreferencesProvider));
+});
+
+final authRemoteDataSourceProvider = Provider<AuthRemoteDataSource>((ref) {
+  return AuthRemoteDataSourceImpl(ref.watch(apiClientProvider));
 });
 
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
   return AuthRepositoryImpl(
-    ref.watch(authLocalDataSourceProvider),
-    ref.watch(sharedPreferencesProvider),
+    remote: ref.watch(authRemoteDataSourceProvider),
+    local: ref.watch(authLocalDataSourceProvider),
+    tokens: ref.watch(tokenStoreProvider),
+    installationId: ref.watch(installationIdProvider),
+    timeZone: deviceTimeZone,
   );
 });
 
@@ -35,15 +46,42 @@ class Auth extends AsyncNotifier<User?> {
 
   @override
   Future<User?> build() async {
+    // The server ended the session (refresh token revoked or expired).
+    final expired = ref
+        .watch(sessionEventsProvider)
+        .expired
+        .listen((_) => _onSessionExpired());
+    ref.onDispose(expired.cancel);
+
     try {
-      return await GetCurrentUserUseCase(
+      final user = await GetCurrentUserUseCase(
         _repository,
       )().timeout(const Duration(seconds: 10));
+      if (user != null) unawaited(_refreshProfile());
+      return user;
     } catch (error) {
       // A session that can't be restored just means "signed out".
       debugPrint('Could not restore the saved session: $error');
       return null;
     }
+  }
+
+  /// Picks up a name changed on another device.
+  Future<void> _refreshProfile() async {
+    try {
+      final fresh = await RefreshProfileUseCase(_repository)();
+      if (fresh != null && ref.mounted && state.value != null) {
+        state = AsyncData(fresh);
+      }
+    } catch (error) {
+      debugPrint('Profile refresh failed: $error');
+    }
+  }
+
+  Future<void> _onSessionExpired() async {
+    if (state.value == null) return;
+    await _repository.clearSession();
+    if (ref.mounted) state = const AsyncData(null);
   }
 
   Future<User> login(

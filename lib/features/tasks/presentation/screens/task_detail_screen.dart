@@ -10,7 +10,6 @@ import '../../../../core/utils/date_time_utils.dart';
 import '../../../../shared/widgets/app_header.dart';
 import '../../../../shared/widgets/not_found_screen.dart';
 import '../../../../shared/widgets/ui.dart';
-import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../domain/entities/task.dart';
 import '../providers/task_provider.dart';
 import '../widgets/task_card.dart';
@@ -28,7 +27,8 @@ class TaskDetailScreen extends ConsumerStatefulWidget {
 
 class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
   final _subtaskController = TextEditingController();
-  // Subtasks swiped away but not yet gone from the reloaded list.
+  // Swiped-away subtasks stay hidden even if a reload that started earlier
+  // briefly brings them back (a dismissed row must leave the tree).
   final _removedSubtasks = <int>{};
   bool _deleting = false;
 
@@ -141,10 +141,7 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
           body: const Center(child: CircularProgressIndicator()),
         );
       }
-      return const NotFoundScreen(
-        title: 'Task not found',
-        message: 'This task no longer exists. It may have been deleted.',
-      );
+      return const NotFoundScreen(title: 'Task not found');
     }
 
     final id = task.id!;
@@ -153,7 +150,7 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
       body: Column(
         children: [
           BackHeader(
-            title: 'Task Details',
+            title: 'Task',
             actions: [
               SquareIconButton(
                 icon: Icons.edit_outlined,
@@ -234,11 +231,7 @@ class _Badges extends StatelessWidget {
       spacing: 8,
       runSpacing: 8,
       children: [
-        PriorityBadge(
-          priority: task.priority,
-          long: true,
-          pulse: !task.isCompleted,
-        ),
+        PriorityBadge(priority: task.priority, long: true),
         if (task.category.isNotEmpty) CategoryTag(category: task.category),
         if (task.repeat != RepeatRule.none)
           Pill(
@@ -392,7 +385,7 @@ class _Notes extends StatelessWidget {
                 Icon(Icons.notes_rounded, size: 16, color: p.warmMuted),
                 const SizedBox(width: 6),
                 Text(
-                  'DESCRIPTION & CONTEXT',
+                  'NOTES',
                   style: context.text.labelSmall?.copyWith(
                     color: p.warmMuted,
                     letterSpacing: 1,
@@ -402,7 +395,7 @@ class _Notes extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             SelectableText(
-              empty ? 'No notes yet. Tap to add some context.' : text,
+              empty ? 'Add notes' : text,
               onTap: empty ? onTap : null,
               style: context.text.bodyMedium?.copyWith(
                 height: 1.6,
@@ -479,7 +472,6 @@ class _Subtasks extends StatelessWidget {
                 decoration: BoxDecoration(
                   gradient: p.accentGradient,
                   borderRadius: BorderRadius.circular(999),
-                  boxShadow: value > 0 ? null : null,
                 ),
               ),
             ),
@@ -506,15 +498,8 @@ class _Subtasks extends StatelessWidget {
               child: _SubtaskRow(
                 subtask: subtask,
                 onTap: () => onToggle(subtask),
+                onDelete: () => onDelete(subtask),
               ),
-            ),
-          ),
-        if (total > 0)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8, left: 4),
-            child: Text(
-              'Swipe a step to the left to remove it.',
-              style: text.labelSmall?.copyWith(color: p.textMuted),
             ),
           ),
         const SizedBox(height: 4),
@@ -525,10 +510,12 @@ class _Subtasks extends StatelessWidget {
                 controller: controller,
                 textInputAction: TextInputAction.done,
                 textCapitalization: TextCapitalization.sentences,
+                maxLength: 200,
                 onSubmitted: (_) => onAdd(),
                 style: text.bodyMedium,
                 decoration: InputDecoration(
-                  hintText: 'Add a new subtask...',
+                  counterText: '',
+                  hintText: 'Add a subtask',
                   fillColor: p.card,
                   isDense: true,
                   contentPadding: const EdgeInsets.symmetric(
@@ -572,8 +559,13 @@ class _Subtasks extends StatelessWidget {
 class _SubtaskRow extends StatelessWidget {
   final Subtask subtask;
   final VoidCallback onTap;
+  final VoidCallback onDelete;
 
-  const _SubtaskRow({required this.subtask, required this.onTap});
+  const _SubtaskRow({
+    required this.subtask,
+    required this.onTap,
+    required this.onDelete,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -591,7 +583,7 @@ class _SubtaskRow extends StatelessWidget {
           borderRadius: BorderRadius.circular(14),
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
             child: Row(
               children: [
                 AnimatedContainer(
@@ -613,16 +605,23 @@ class _SubtaskRow extends StatelessWidget {
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: AnimatedOpacity(
-                    duration: const Duration(milliseconds: 180),
-                    opacity: done ? 0.5 : 1,
-                    child: Text(
-                      subtask.title,
-                      style: context.text.bodyMedium?.copyWith(
-                        decoration: done ? TextDecoration.lineThrough : null,
-                        decorationColor: p.textSecondary,
-                      ),
+                  child: Text(
+                    subtask.title,
+                    style: context.text.bodyMedium?.copyWith(
+                      color: done ? p.textMuted : p.text,
+                      decoration: done ? TextDecoration.lineThrough : null,
+                      decorationColor: p.textMuted,
                     ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Remove',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: onDelete,
+                  icon: Icon(
+                    Icons.close_rounded,
+                    size: 18,
+                    color: p.textMuted,
                   ),
                 ),
               ],
@@ -634,16 +633,15 @@ class _SubtaskRow extends StatelessWidget {
   }
 }
 
-class _Activity extends ConsumerWidget {
+class _Activity extends StatelessWidget {
   final Task task;
 
   const _Activity({required this.task});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final p = context.palette;
     final style = context.text.bodySmall?.copyWith(color: p.textSecondary);
-    final name = ref.watch(authProvider.select((a) => a.value?.firstName));
 
     Widget line(IconData icon, InlineSpan span) => Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
@@ -663,26 +661,12 @@ class _Activity extends ConsumerWidget {
       child: Column(
         children: [
           line(
-            Icons.account_circle_outlined,
-            TextSpan(
-              children: [
-                TextSpan(text: 'Created ${dayAgo(task.createdAt)}'),
-                if (name != null && name.isNotEmpty) ...[
-                  const TextSpan(text: ' by '),
-                  TextSpan(
-                    text: name,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: p.text,
-                    ),
-                  ),
-                ],
-              ],
-            ),
+            Icons.add_circle_outline_rounded,
+            TextSpan(text: 'Created ${dayAgo(task.createdAt)}'),
           ),
           line(
             Icons.history_rounded,
-            TextSpan(text: 'Last updated ${timeAgo(task.updatedAt)}'),
+            TextSpan(text: 'Updated ${timeAgo(task.updatedAt)}'),
           ),
           if (task.reminder && !task.isCompleted)
             line(
@@ -728,7 +712,7 @@ class _CompleteBar extends StatelessWidget {
           child: done
               ? _ReopenButton(onPressed: onPressed)
               : PrimaryButton(
-                  label: 'Mark as Complete',
+                  label: 'Complete',
                   icon: Icons.check_circle_outline_rounded,
                   iconAfter: false,
                   height: 56,
@@ -770,7 +754,7 @@ class _ReopenButton extends StatelessWidget {
             const SizedBox(width: 8),
             Flexible(
               child: Text(
-                'Completed · Reopen Task',
+                'Reopen',
                 style: context.text.titleMedium,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,

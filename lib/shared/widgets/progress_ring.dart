@@ -3,7 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 /// Circular progress that animates to [progress] (0..1), with an optional
-/// soft glow under the arc.
+/// soft glow under the arc (off by default: a blur on every animation frame
+/// is costly).
 class ProgressRing extends StatelessWidget {
   final double progress;
   final double size;
@@ -20,7 +21,7 @@ class ProgressRing extends StatelessWidget {
     required this.strokeWidth,
     required this.color,
     required this.trackColor,
-    this.glow = true,
+    this.glow = false,
     this.child,
   });
 

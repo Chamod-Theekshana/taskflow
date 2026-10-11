@@ -14,6 +14,8 @@ import '../../../../shared/widgets/ui.dart';
 import '../../../../shared/widgets/user_avatar.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../stats/domain/productivity.dart';
+import '../../../sync/domain/sync_status.dart';
+import '../../../sync/presentation/providers/sync_provider.dart';
 import '../../../tasks/data/task_backup.dart';
 import '../../../tasks/domain/entities/task.dart';
 import '../../../tasks/presentation/providers/task_provider.dart';
@@ -57,11 +59,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       );
       if (!mounted) return;
       if (!allowed) {
-        showMessage(
-          context,
-          'Notifications are blocked. Allow them for TaskFlow in your '
-          'phone settings, then try again.',
-        );
+        showMessage(context, 'Allow notifications in your phone settings.');
         return;
       }
     }
@@ -75,7 +73,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       );
       if (!mounted) return;
       if (!allowed) {
-        showMessage(context, 'Allow notifications to get the daily digest.');
+        showMessage(context, 'Allow notifications in your phone settings.');
         return;
       }
     }
@@ -97,10 +95,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final picked = await showChoiceSheet<TaskPriority>(
       context,
       title: 'Default priority',
-      subtitle: 'Used for new tasks unless the title says otherwise.',
       options: [
         for (final p in TaskPriority.values.reversed)
-          (value: p, label: '${p.label} · ${p.mood}', icon: Icons.flag_outlined),
+          (value: p, label: p.label, icon: Icons.flag_outlined),
       ],
       selected: current,
     );
@@ -153,10 +150,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     await Clipboard.setData(ClipboardData(text: TaskBackup.encode(tasks)));
     if (!mounted) return;
     setState(() => _exportNote = 'Copied ${plural(tasks.length, 'task')}');
-    showMessage(
-      context,
-      'All tasks are on the clipboard. Paste them somewhere safe.',
-    );
   }
 
   Future<void> _import() async {
@@ -164,7 +157,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final text = data?.text ?? '';
     if (!mounted) return;
     if (text.trim().isEmpty) {
-      showMessage(context, 'Copy a TaskFlow backup first, then tap Import.');
+      showMessage(context, 'Copy a TaskFlow backup first.');
       return;
     }
     try {
@@ -188,9 +181,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final confirmed = await confirmAction(
       context,
       title: 'Log out?',
-      message:
-          'Your tasks stay on this device and will be here when you sign '
-          'back in.',
       confirmLabel: 'Log out',
     );
     if (!confirmed || !mounted) return;
@@ -225,25 +215,19 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 onEditGoal: () => _pickGoal(settings.dailyGoal),
               ),
               const SizedBox(height: 20),
-              GroupTitle(
-                title: 'Preferences',
-                trailing: Text(
-                  'Automation & UI',
-                  style: text.labelSmall?.copyWith(color: p.textSecondary),
-                ),
-              ),
+              const GroupTitle(title: 'Preferences'),
               _Group(
                 children: [
                   _SettingRow(
                     icon: Icons.notifications_active_outlined,
-                    title: 'Push Notifications',
-                    subtitle: 'Task reminders & daily digest',
+                    title: 'Notifications',
+                    subtitle: 'Task reminders',
                     onTap: () =>
                         _setNotifications(!settings.notificationsEnabled),
                     trailing: AppSwitch(
                       value: settings.notificationsEnabled,
                       showDot: true,
-                      semanticLabel: 'Push notifications',
+                      semanticLabel: 'Notifications',
                       onChanged: _setNotifications,
                     ),
                   ),
@@ -254,13 +238,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       ignoring: !settings.notificationsEnabled,
                       child: _SettingRow(
                         icon: Icons.wb_sunny_outlined,
-                        title: 'Daily Morning Digest',
+                        title: 'Morning digest',
                         titleBadge: _TimeChip(
                           time: settings.dailyDigestTime,
                           onTap: () =>
                               _pickDigestTime(settings.dailyDigestTime),
                         ),
-                        subtitle: 'Summary of priorities for today',
                         onTap: () => _setDigest(!settings.dailyDigestEnabled),
                         trailing: AppSwitch(
                           value: settings.dailyDigestEnabled,
@@ -273,13 +256,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   ),
                   _SettingRow(
                     icon: Icons.palette_outlined,
-                    title: 'Theme Mode',
+                    title: 'Theme',
                     onTap: () => _pickTheme(settings.themeMode),
-                    subtitle: switch (settings.themeMode) {
-                      ThemeMode.dark => 'Dark obsidian & vibrant orange',
-                      ThemeMode.light => 'Light canvas & vibrant orange',
-                      ThemeMode.system => 'Following your device',
-                    },
+                    subtitle: settings.themeMode == ThemeMode.system
+                        ? 'Following your device'
+                        : null,
                     trailing: _ThemeSwitch(
                       dark: context.isDark,
                       onChanged: (dark) => _settings.setThemeMode(
@@ -289,8 +270,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   ),
                   _SettingRow(
                     icon: Icons.flag_outlined,
-                    title: 'Default Priority',
-                    subtitle: 'Assigned when creating quick tasks',
+                    title: 'Default priority',
                     onTap: () => _pickDefaultPriority(settings.defaultPriority),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -314,34 +294,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 ],
               ),
               const SizedBox(height: 20),
-              GroupTitle(
-                title: 'Account & Data',
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.phone_android_rounded,
-                      size: 14,
-                      color: p.success,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      'On this device',
-                      style: text.labelSmall?.copyWith(
-                        color: p.success,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              const GroupTitle(title: 'Data'),
               _Group(
                 children: [
+                  const _SyncRow(),
                   _SettingRow(
                     icon: Icons.file_download_outlined,
-                    title: 'Export Tasks',
-                    subtitle:
-                        _exportNote ?? 'Copy a full backup to the clipboard',
+                    title: 'Export',
+                    subtitle: _exportNote ?? 'Copy a backup',
                     subtitleColor: _exportNote == null ? null : p.success,
                     subtitleIcon: _exportNote == null
                         ? null
@@ -363,8 +323,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   ),
                   _SettingRow(
                     icon: Icons.upload_file_outlined,
-                    title: 'Import Tasks',
-                    subtitle: 'Restore from a copied TaskFlow backup',
+                    title: 'Import',
+                    subtitle: 'Paste a backup',
                     onTap: _import,
                     trailing: Icon(
                       Icons.content_paste_go_rounded,
@@ -381,9 +341,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   _SettingRow(
                     icon: Icons.logout_rounded,
                     iconColor: p.danger,
-                    title: 'Log Out',
+                    title: 'Log out',
                     titleColor: p.danger,
-                    subtitle: 'Safely end session on this device',
                     onTap: _logout,
                     trailing: Icon(
                       Icons.arrow_forward_rounded,
@@ -393,30 +352,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 24),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Dot(color: p.accent, size: 6),
-                  const SizedBox(width: 6),
-                  Flexible(
-                    child: Text(
-                      'TaskFlow v$kAppVersion • Obsidian Flow',
-                      style: text.labelSmall?.copyWith(color: p.textSecondary),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 20),
               Text(
-                'Build $kAppBuild • Your data never leaves this device',
+                'TaskFlow $kAppVersion',
                 textAlign: TextAlign.center,
-                style: text.bodySmall?.copyWith(
-                  fontSize: 11,
-                  color: p.textFaint,
-                ),
+                style: text.labelSmall?.copyWith(color: p.textFaint),
               ),
             ],
           ),
@@ -540,9 +480,8 @@ class _ProfileCard extends StatelessWidget {
                     Flexible(
                       child: Text(
                         since == null
-                            ? 'Offline account'
-                            : 'Offline account • Member since '
-                                  '${DateFormat('MMM y').format(since)}',
+                            ? 'Signed in'
+                            : 'Member since ${DateFormat('MMM y').format(since)}',
                         style: text.labelSmall?.copyWith(color: p.textMuted),
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -595,19 +534,6 @@ class _WeeklyFlow extends StatelessWidget {
     final daily = completionsThisWeek(tasks, now);
     final todayIndex = now.weekday - 1;
 
-    // Compare with what the goal asks for by today.
-    final expected = goal * (todayIndex + 1);
-    final String status;
-    if (report.completed == 0) {
-      status = 'Fresh week';
-    } else if (report.completed >= goal * 7) {
-      status = 'Weekly goal met';
-    } else if (report.completed >= expected) {
-      status = 'On track';
-    } else {
-      status = 'Building momentum';
-    }
-
     final previous = report.previousCompleted ?? 0;
     final String? change = previous == 0
         ? null
@@ -615,19 +541,9 @@ class _WeeklyFlow extends StatelessWidget {
               '${((report.completed - previous) / previous * 100).round()}%';
 
     final onTime = (report.onTimeRate * 100).round();
-    final pace = report.completed == 0
-        ? 'Nothing done yet'
-        : onTime >= 80
-        ? 'Steady pace'
-        : onTime >= 50
-        ? 'Finding a rhythm'
-        : 'Room to grow';
-
-    final streakNote = report.streak == 0
-        ? 'Start today'
-        : report.streak >= report.bestStreak
-        ? 'Personal best'
-        : 'Best: ${report.bestStreak}d';
+    final streakNote = report.bestStreak > 0
+        ? 'Best ${report.bestStreak}d'
+        : 'days';
 
     final footStyle = text.labelSmall?.copyWith(color: p.textSecondary);
 
@@ -648,19 +564,7 @@ class _WeeklyFlow extends StatelessWidget {
                 child: Icon(Icons.insights_rounded, size: 18, color: p.accent),
               ),
               const SizedBox(width: 8),
-              Expanded(child: Text('Weekly Flow', style: text.headlineSmall)),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Pill(
-                  label: status,
-                  background: p.accent.withValues(alpha: 0.15),
-                  foreground: p.accent,
-                  border: p.accent.withValues(alpha: 0.3),
-                  style: text.labelSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
+              Expanded(child: Text('This week', style: text.headlineSmall)),
             ],
           ),
           const SizedBox(height: 16),
@@ -703,7 +607,7 @@ class _WeeklyFlow extends StatelessWidget {
                   iconColor: p.success,
                   value: '$onTime%',
                   footer: Text(
-                    pace,
+                    'on time',
                     style: footStyle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -745,7 +649,7 @@ class _WeeklyFlow extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        'Daily Breakdown',
+                        'Daily',
                         style: text.labelMedium?.copyWith(
                           fontWeight: FontWeight.w500,
                         ),
@@ -756,7 +660,7 @@ class _WeeklyFlow extends StatelessWidget {
                       semanticLabel: 'Change daily target',
                       child: Row(
                         children: [
-                          Text('Target: $goal tasks/day', style: footStyle),
+                          Text('Goal $goal/day', style: footStyle),
                           const SizedBox(width: 4),
                           Icon(
                             Icons.edit_outlined,
@@ -1014,7 +918,7 @@ class _SettingRow extends StatelessWidget {
   final String title;
   final Color? titleColor;
   final Widget? titleBadge;
-  final String subtitle;
+  final String? subtitle;
   final Color? subtitleColor;
   final IconData? subtitleIcon;
   final Widget trailing;
@@ -1023,8 +927,8 @@ class _SettingRow extends StatelessWidget {
   const _SettingRow({
     required this.icon,
     required this.title,
-    required this.subtitle,
     required this.trailing,
+    this.subtitle,
     this.iconColor,
     this.titleColor,
     this.titleBadge,
@@ -1076,26 +980,28 @@ class _SettingRow extends StatelessWidget {
                         ],
                       ],
                     ),
-                    const SizedBox(height: 1),
-                    Row(
-                      children: [
-                        if (subtitleIcon != null) ...[
-                          Icon(subtitleIcon, size: 14, color: subColor),
-                          const SizedBox(width: 4),
-                        ],
-                        Expanded(
-                          child: Text(
-                            subtitle,
-                            style: text.bodySmall?.copyWith(
-                              fontSize: 12,
-                              color: subColor,
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 1),
+                      Row(
+                        children: [
+                          if (subtitleIcon != null) ...[
+                            Icon(subtitleIcon, size: 14, color: subColor),
+                            const SizedBox(width: 4),
+                          ],
+                          Expanded(
+                            child: Text(
+                              subtitle!,
+                              style: text.bodySmall?.copyWith(
+                                fontSize: 12,
+                                color: subColor,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                           ),
-                        ),
-                      ],
-                    ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -1225,13 +1131,6 @@ class _GoalSheet extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Daily target', style: context.text.headlineMedium),
-            const SizedBox(height: 4),
-            Text(
-              'How many tasks would you like to finish on a good day?',
-              style: context.text.bodySmall?.copyWith(
-                color: context.palette.textSecondary,
-              ),
-            ),
             const SizedBox(height: 16),
             Wrap(
               spacing: 8,
@@ -1252,8 +1151,38 @@ class _GoalSheet extends StatelessWidget {
   }
 }
 
+/// Last sync time; tap to sync now.
+class _SyncRow extends ConsumerWidget {
+  const _SyncRow();
 
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final p = context.palette;
+    final status = ref.watch(syncStatusProvider);
+    final last = status.lastSyncedAt;
+    final (String subtitle, Color? color) = switch (status.phase) {
+      SyncPhase.syncing => ('Syncing…', null),
+      SyncPhase.offline => ('Offline', p.amber),
+      SyncPhase.error => (status.message ?? "Couldn't sync", p.danger),
+      SyncPhase.idle =>
+        last == null ? ('Not synced yet', null) : ('Synced ${timeAgo(last)}', null),
+    };
 
-
-
-
+    return _SettingRow(
+      icon: Icons.cloud_sync_outlined,
+      title: 'Sync',
+      subtitle: subtitle,
+      subtitleColor: color,
+      onTap: status.phase == SyncPhase.syncing
+          ? null
+          : () => ref.read(syncStatusProvider.notifier).syncNow(),
+      trailing: status.phase == SyncPhase.syncing
+          ? const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : Icon(Icons.refresh_rounded, size: 20, color: p.textMuted),
+    );
+  }
+}
